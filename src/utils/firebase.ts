@@ -13,12 +13,19 @@ setPersistence(auth, browserLocalPersistence).catch((err) => {
   console.error("Auth persistence setup failed:", err);
 });
 
-// Configure Google Auth Provider with Google Drive file scope
+// Configure Google Auth Provider with Google Drive file scope and Google Contacts scope
 export const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/drive.file');
+provider.addScope('https://www.googleapis.com/auth/contacts.readonly');
 
 let isSigningIn = false;
-let cachedAccessToken: string | null = null;
+let cachedAccessToken: string | null = (() => {
+  try {
+    return sessionStorage.getItem('pkh_google_drive_token');
+  } catch (e) {
+    return null;
+  }
+})();
 
 // Listen to auth state transitions
 export const initAuth = (
@@ -27,17 +34,27 @@ export const initAuth = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      // Look up cached token or allow caller to query
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      const activeToken = cachedAccessToken || (() => {
+        try {
+          return sessionStorage.getItem('pkh_google_drive_token');
+        } catch (e) {
+          return null;
+        }
+      })();
+
+      if (activeToken) {
+        cachedAccessToken = activeToken;
+        if (onAuthSuccess) onAuthSuccess(user, activeToken);
       } else {
         // Fallback: If auth state restored but token is in memory (cleared on refresh),
-        // we'll request a prompt login or trigger state update
-        if (onAuthSuccess && cachedAccessToken) onAuthSuccess(user, cachedAccessToken);
-        else if (onAuthFailure) onAuthFailure();
+        // we'll trigger failure so they can login and receive a fresh token
+        if (onAuthFailure) onAuthFailure();
       }
     } else {
       cachedAccessToken = null;
+      try {
+        sessionStorage.removeItem('pkh_google_drive_token');
+      } catch (e) {}
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -53,6 +70,9 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       throw new Error('Gagal mendapatkan Access Token Google Drive dari autentikasi');
     }
     cachedAccessToken = credential.accessToken;
+    try {
+      sessionStorage.setItem('pkh_google_drive_token', cachedAccessToken);
+    } catch (e) {}
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Autentikasi gagal:', error);
@@ -71,6 +91,9 @@ export const getAccessToken = async (): Promise<string | null> => {
 export const logout = async () => {
   await auth.signOut();
   cachedAccessToken = null;
+  try {
+    sessionStorage.removeItem('pkh_google_drive_token');
+  } catch (e) {}
 };
 
 /**

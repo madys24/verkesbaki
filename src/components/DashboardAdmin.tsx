@@ -15,17 +15,22 @@ import { MasterKPM, VerifikasiPKH, DetailKomponenVerifikasi, DokumenVerifikasi }
 import { DBService } from '../utils/dbService';
 import { auth, googleSignIn } from '../utils/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import RiwayatKPM from './RiwayatKPM';
 
 export default function DashboardAdmin({ 
   onBackToHome, 
   onSelectKKForKPM, 
   isProduction = false,
-  onToggleProduction
+  onToggleProduction,
+  initialSubTab,
+  initialKK = ''
 }: { 
   onBackToHome?: () => void; 
   onSelectKKForKPM?: (kk: string) => void; 
   isProduction?: boolean; 
   onToggleProduction?: (prod: boolean) => void;
+  initialSubTab?: 'monitoring' | 'validasi' | 'master' | 'rekap' | 'riwayat';
+  initialKK?: string;
 } = {}) {
   // Admin Authentication State
   const [isAdminAuthorized, setIsAdminAuthorized] = useState<boolean>(() => {
@@ -90,7 +95,19 @@ export default function DashboardAdmin({
     sessionStorage.setItem('pkh_admin_authorized', 'true');
   };
 
-  const [activeSubTab, setActiveSubTab] = useState<'monitoring' | 'validasi' | 'master' | 'rekap'>('monitoring');
+  const [activeSubTab, setActiveSubTab] = useState<'monitoring' | 'validasi' | 'master' | 'rekap' | 'riwayat'>(() => {
+    return initialSubTab || 'monitoring';
+  });
+
+  // Filtering states for Master KPM
+  const [kpmSearchQuery, setKpmSearchQuery] = useState('');
+  const [kpmStatusFilter, setKpmStatusFilter] = useState<'Semua' | 'Aktif' | 'Tidak Aktif'>('Semua');
+  const [kpmDesaFilter, setKpmDesaFilter] = useState<string>('Semua');
+  const [kpmPendampingFilter, setKpmPendampingFilter] = useState<string>('Semua');
+
+  // Pagination states for Master KPM
+  const [kpmCurrentPage, setKpmCurrentPage] = useState<number>(1);
+  const [kpmItemsPerPage, setKpmItemsPerPage] = useState<number>(10);
 
   // Monitoring subtab local search and filter states
   const [monitoringSearch, setMonitoringSearch] = useState('');
@@ -104,6 +121,74 @@ export default function DashboardAdmin({
 
   // Validasi filter state
   const [validasiFilterStatus, setValidasiFilterStatus] = useState<string>('Semua');
+  const [selectedReportIDs, setSelectedReportIDs] = useState<string[]>([]);
+
+  // Sorting state for master data KPM
+  const [kpmSortKey, setKpmSortKey] = useState<string>('NamaKepalaKeluarga');
+  const [kpmSortOrder, setKpmSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Computed filtered list for validation subtab
+  const currentFilteredReports = verifList.filter(v => 
+    validasiFilterStatus === 'Semua' ? true : v.Status === validasiFilterStatus
+  );
+
+  // Helper utility functions to parse RT/RW from address string if needed by sorting
+  const localExtractRTVal = (addr: string): string => {
+    const match = addr.match(/rt\s*[:\.]?\s*(\d+)/i);
+    return match ? match[1] : '';
+  };
+
+  const localExtractRWVal = (addr: string): string => {
+    const match = addr.match(/rw\s*[:\.]?\s*(\d+)/i);
+    return match ? match[1] : '';
+  };
+
+  // Computed filtered list for master KPM subtab
+  const masterFilteredKpmList = kpmList.filter((k) => {
+    const matchesSearch = kpmSearchQuery === '' ||
+      k.NamaKepalaKeluarga.toLowerCase().includes(kpmSearchQuery.toLowerCase()) ||
+      k.NomorKK.includes(kpmSearchQuery);
+
+    const matchesStatus = kpmStatusFilter === 'Semua' || k.StatusKPM === kpmStatusFilter;
+    const matchesDesa = kpmDesaFilter === 'Semua' || k.Desa === kpmDesaFilter;
+    const matchesPendamping = kpmPendampingFilter === 'Semua' || k.NamaPendamping === kpmPendampingFilter;
+
+    return matchesSearch && matchesStatus && matchesDesa && matchesPendamping;
+  });
+
+  // Computed sorted list for master KPM subtab
+  const sortedKpmList = [...masterFilteredKpmList].sort((a, b) => {
+    let valA: any = a[kpmSortKey as keyof MasterKPM];
+    let valB: any = b[kpmSortKey as keyof MasterKPM];
+
+    if (kpmSortKey === 'RT') {
+      valA = parseInt(a.RT || localExtractRTVal(a.Alamat) || '0', 10);
+      valB = parseInt(b.RT || localExtractRTVal(b.Alamat) || '0', 10);
+    } else if (kpmSortKey === 'RW') {
+      valA = parseInt(a.RW || localExtractRWVal(a.Alamat) || '0', 10);
+      valB = parseInt(b.RW || localExtractRWVal(b.Alamat) || '0', 10);
+    } else if (kpmSortKey === 'TotalAgregatKomponen') {
+      valA = Number(a.TotalAgregatKomponen || (Number(a.JumlahIbuHamil) + Number(a.JumlahBalita) + Number(a.JumlahLansia) + Number(a.JumlahDisabilitas)));
+      valB = Number(b.TotalAgregatKomponen || (Number(b.JumlahIbuHamil) + Number(b.JumlahBalita) + Number(b.JumlahLansia) + Number(b.JumlahDisabilitas)));
+    } else {
+      valA = valA ? String(valA).toLowerCase() : '';
+      valB = valB ? String(valB).toLowerCase() : '';
+    }
+
+    if (valA < valB) return kpmSortOrder === 'asc' ? -1 : 1;
+    if (valA > valB) return kpmSortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  // Automatically reset to Page 1 when any search/filter changes
+  useEffect(() => {
+    setKpmCurrentPage(1);
+  }, [kpmSearchQuery, kpmStatusFilter, kpmDesaFilter, kpmPendampingFilter]);
+
+  const totalKpmItems = sortedKpmList.length;
+  const totalKpmPages = Math.ceil(totalKpmItems / kpmItemsPerPage) || 1;
+  const startIndex = (kpmCurrentPage - 1) * kpmItemsPerPage;
+  const paginatedKpmList = sortedKpmList.slice(startIndex, startIndex + kpmItemsPerPage);
 
   // Pendamping, Desa and RW Filters for Monitoring
   const [selectedPendampingFilter, setSelectedPendampingFilter] = useState<string>('Semua');
@@ -480,6 +565,26 @@ export default function DashboardAdmin({
       fetchDB();
     } catch (err) {
       alert('Gagal memperbarui status di Firestore: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleBatchUpdateStatus = async (ids: string[], status: 'Tersubmit' | 'Tervalidasi' | 'Ditolak') => {
+    if (ids.length === 0) return;
+    try {
+      await Promise.all(ids.map(id => DBService.updateVerificationStatus(id, status)));
+      fetchDB();
+      setSelectedReportIDs([]); // Reset selection state after batch operation succeeds
+    } catch (err) {
+      alert('Gagal memperbarui status masal di Firestore: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const toggleKpmSort = (key: string) => {
+    if (kpmSortKey === key) {
+      setKpmSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setKpmSortKey(key);
+      setKpmSortOrder('asc');
     }
   };
 
@@ -892,6 +997,17 @@ export default function DashboardAdmin({
         >
           <TrendingUp className="w-4 h-4" />
           Rekapitulasi Wilayah 🗺️
+        </button>
+        <button
+          onClick={() => setActiveSubTab('riwayat')}
+          className={`px-5 py-3 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 cursor-pointer ${
+            activeSubTab === 'riwayat' 
+              ? 'border-blue-600 text-blue-700 bg-white' 
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FileText className="w-4 h-4 text-purple-600" />
+          Riwayat Laporan KPM 📋
         </button>
       </div>
 
@@ -1376,47 +1492,55 @@ export default function DashboardAdmin({
                                               Tidak ada berkas bukti foto yang diunggah.
                                             </div>
                                           ) : (
-                                            <div className="grid grid-cols-1 gap-2">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
                                               {relatedDocs.map((doc) => (
-                                                <div key={doc.DokumenID} className="bg-white border border-slate-200 p-2 rounded-lg flex items-center justify-between gap-2 shadow-sm">
-                                                  <div className="flex items-center gap-2 truncate">
-                                                    {/* Little image thumbnail */}
-                                                    <div className="w-8 h-8 rounded bg-slate-100 overflow-hidden relative shrink-0 border border-slate-150 flex items-center justify-center">
-                                                      {doc.FileURL ? (
+                                                <div key={doc.DokumenID} className="group bg-white border border-slate-200 hover:border-blue-300 p-2.5 rounded-xl flex flex-col gap-2.5 shadow-sm hover:shadow transition-all duration-200">
+                                                  {/* Frame display image directly */}
+                                                  <div className="w-full h-24 bg-slate-50 rounded-lg overflow-hidden relative border border-slate-200 flex items-center justify-center cursor-zoom-in group/img" onClick={() => setModalImage({ url: doc.FileURL, title: doc.JenisDokumen })}>
+                                                    {doc.FileURL ? (
+                                                      <>
                                                         <img 
                                                           src={doc.FileURL} 
-                                                          alt="Bukti" 
-                                                          className="w-full h-full object-cover cursor-zoom-in" 
+                                                          alt={doc.JenisDokumen} 
+                                                          className="w-full h-full object-cover group-hover/img:scale-105 transition-all duration-300" 
                                                           referrerPolicy="no-referrer"
-                                                          onClick={() => setModalImage({ url: doc.FileURL, title: doc.JenisDokumen })}
                                                         />
-                                                      ) : (
-                                                        <FileText className="w-4 h-4 text-slate-400" />
-                                                      )}
-                                                    </div>
-                                                    <div className="truncate">
-                                                      <span className="font-bold text-slate-800 text-[10px] block truncate leading-tight">{doc.JenisDokumen}</span>
-                                                      <span className="text-[8px] text-slate-400 truncate block font-mono leading-none">{doc.NamaFile}</span>
-                                                    </div>
+                                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+                                                          <div className="bg-white/90 text-[10px] text-slate-900 font-extrabold px-2.5 py-1 rounded-full flex items-center gap-1 shadow-md">
+                                                            <Eye className="w-3 h-3 text-blue-600 animate-pulse" />
+                                                            <span>Zoom 🔍</span>
+                                                          </div>
+                                                        </div>
+                                                      </>
+                                                    ) : (
+                                                      <div className="flex flex-col items-center gap-1 text-slate-400">
+                                                        <FileText className="w-6 h-6" />
+                                                        <span className="text-[8px] font-bold uppercase">No Photo</span>
+                                                      </div>
+                                                    )}
                                                   </div>
 
-                                                  {/* Icons for view (Eye) and download (Download) */}
-                                                  <div className="flex items-center gap-1.5 shrink-0">
+                                                  <div className="space-y-0.5 min-w-0">
+                                                    <span className="font-extrabold text-slate-800 text-[10.5px] block truncate leading-tight">{doc.JenisDokumen}</span>
+                                                    <span className="text-[8px] text-slate-400 truncate block font-mono leading-none">{doc.NamaFile}</span>
+                                                  </div>
+
+                                                  <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-100">
                                                     <button
                                                       type="button"
                                                       onClick={() => setModalImage({ url: doc.FileURL, title: doc.JenisDokumen })}
-                                                      className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 border border-slate-150 hover:border-blue-200 rounded transition-colors cursor-pointer"
-                                                      title="Lihat Foto Bukti"
+                                                      className="px-2 py-1 text-[9.5px] font-bold bg-blue-50 hover:bg-blue-105 text-blue-750 rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1 border border-blue-100"
                                                     >
-                                                      <Eye className="w-3.5 h-3.5" />
+                                                      <Eye className="w-3 h-3" />
+                                                      <span>Buka</span>
                                                     </button>
                                                     <button
                                                       type="button"
                                                       onClick={() => handleDownloadFile(doc.FileURL, doc.NamaFile)}
-                                                      className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 border border-slate-150 hover:border-emerald-200 rounded transition-colors cursor-pointer"
-                                                      title="Unduh File Foto"
+                                                      className="px-2 py-1 text-[9.5px] font-bold bg-emerald-50 hover:bg-emerald-105 text-emerald-750 rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1 border border-emerald-100"
                                                     >
-                                                      <Download className="w-3.5 h-3.5" />
+                                                      <Download className="w-3 h-3" />
+                                                      <span>Unduh</span>
                                                     </button>
                                                   </div>
                                                 </div>
@@ -1455,69 +1579,178 @@ export default function DashboardAdmin({
         {/* SUBTAB 2: VALIDASI LAPORAN MASUK */}
         {activeSubTab === 'validasi' && (
           <div className="space-y-6">
-            
-            {/* Filter statuses control bar */}
-            <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-slate-100 rounded-lg border border-slate-200">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-700 uppercase">Saring Status:</span>
-                <div className="inline-flex gap-1">
-                  {['Semua', 'Tersubmit', 'Tervalidasi', 'Ditolak'].map((st) => (
-                    <button
-                      key={st}
-                      onClick={() => setValidasiFilterStatus(st)}
-                      className={`px-3 py-1 text-xs font-semibold rounded cursor-pointer transition-all ${
-                        validasiFilterStatus === st 
-                          ? 'bg-blue-600 text-white shadow-sm' 
-                          : 'bg-white text-slate-600 hover:text-slate-800 border border-slate-200'
-                      }`}
-                    >
-                      {st}
-                    </button>
-                  ))}
+              
+              {/* Filter statuses control bar */}
+              <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-slate-100 rounded-lg border border-slate-200">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 uppercase">Saring Status:</span>
+                  <div className="inline-flex gap-1">
+                    {['Semua', 'Tersubmit', 'Tervalidasi', 'Ditolak'].map((st) => (
+                      <button
+                        key={st}
+                        onClick={() => {
+                          setValidasiFilterStatus(st);
+                          setSelectedReportIDs([]); // Reset selection when filters change
+                        }}
+                        className={`px-3 py-1 text-xs font-semibold rounded cursor-pointer transition-all ${
+                          validasiFilterStatus === st 
+                            ? 'bg-blue-600 text-white shadow-sm' 
+                            : 'bg-white text-slate-600 hover:text-slate-800 border border-slate-200'
+                        }`}
+                      >
+                        {st}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="text-xs text-slate-500">
+                  Ditemukan <strong>{currentFilteredReports.length}</strong> laporan verifikasi kesehatan mandiri.
                 </div>
               </div>
 
-              <div className="text-xs text-slate-500">
-                Ditemukan <strong>{
-                  verifList.filter(v => validasiFilterStatus === 'Semua' ? true : v.Status === validasiFilterStatus).length
-                }</strong> laporan verifikasi kesehatan mandiri.
+              {/* Batch Actions and select-all checklist */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-blue-50/50 rounded-xl border border-blue-200 text-xs">
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={currentFilteredReports.length > 0 && selectedReportIDs.length === currentFilteredReports.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedReportIDs(currentFilteredReports.map(r => r.VerifikasiID));
+                        } else {
+                          setSelectedReportIDs([]);
+                        }
+                      }}
+                      className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span>Pilih Semua di List ({currentFilteredReports.length})</span>
+                  </label>
+
+                  {selectedReportIDs.length > 0 && (
+                    <span className="font-semibold text-slate-700 bg-blue-105 text-[11px] px-2.5 py-1 rounded">
+                      Terpilih: <strong className="text-blue-800 font-mono font-extrabold">{selectedReportIDs.length}</strong> laporan
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedReportIDs.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`Validasi ${selectedReportIDs.length} laporan terpilih?`)) {
+                            handleBatchUpdateStatus(selectedReportIDs, 'Tervalidasi');
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer text-xs shadow-sm"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Validasi Terpilih ({selectedReportIDs.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`Tolak ${selectedReportIDs.length} laporan terpilih?`)) {
+                            handleBatchUpdateStatus(selectedReportIDs, 'Ditolak');
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-red-650 hover:bg-red-755 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer text-xs shadow-sm"
+                      >
+                        <Ban className="w-3.5 h-3.5" />
+                        Tolak Terpilih
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`Reset status ${selectedReportIDs.length} laporan ke 'Tersubmit'?`)) {
+                            handleBatchUpdateStatus(selectedReportIDs, 'Tersubmit');
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-slate-500 hover:bg-slate-600 text-white font-bold rounded-lg transition-colors cursor-pointer text-xs shadow-sm"
+                      >
+                        Reset Status
+                      </button>
+                    </>
+                  )}
+
+                  {verifList.filter(v => v.Status === 'Tersubmit').length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allPendingIDs = verifList.filter(v => v.Status === 'Tersubmit').map(v => v.VerifikasiID);
+                        if (confirm(`Apakah Anda yakin ingin memvalidasi SEMUA (${allPendingIDs.length}) laporan berstatus 'Tersubmit'?`)) {
+                          handleBatchUpdateStatus(allPendingIDs, 'Tervalidasi');
+                        }
+                      }}
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg flex items-center gap-1.5 transition-all text-xs cursor-pointer shadow-sm ml-auto"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Validasi Semua data masuk ({verifList.filter(v => v.Status === 'Tersubmit').length})
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
 
-            {/* List to perform validations */}
-            <div className="space-y-4">
-              {verifList
-                .filter(v => validasiFilterStatus === 'Semua' ? true : v.Status === validasiFilterStatus)
-                .sort((a,b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime())
-                .map((report) => {
-                  const matchKPM = kpmList.find(k => k.NomorKK === report.NomorKK);
-                  const relatedDetails = detailList.filter(d => d.VerifikasiID === report.VerifikasiID);
-                  const relatedDocs = dokumenList.filter(doc => doc.VerifikasiID === report.VerifikasiID);
+              {/* List to perform validations */}
+              <div className="space-y-4">
+                {currentFilteredReports
+                  .sort((a,b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime())
+                  .map((report) => {
+                    const matchKPM = kpmList.find(k => k.NomorKK === report.NomorKK);
+                    const relatedDetails = detailList.filter(d => d.VerifikasiID === report.VerifikasiID);
+                    const relatedDocs = dokumenList.filter(doc => doc.VerifikasiID === report.VerifikasiID);
 
-                  return (
-                    <div key={report.VerifikasiID} className="p-5 bg-white border border-slate-200 rounded-xl shadow-sm space-y-4">
-                      
-                      {/* Header block info */}
-                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-3">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                              LAPID: {report.VerifikasiID.substring(0,12)}
-                            </span>
-                            <span className="text-blue-800 text-xs font-extrabold">
-                              Bulan {report.BulanPelaporan} / {report.TahunPelaporan} &bull; {report.JenisPeriode}
-                            </span>
+                    const isSelected = selectedReportIDs.includes(report.VerifikasiID);
+
+                    return (
+                      <div key={report.VerifikasiID} className={`p-5 border rounded-xl transition-all duration-200 space-y-4 ${
+                        isSelected 
+                          ? 'border-blue-400 bg-blue-50/10 shadow-md ring-2 ring-blue-100/50' 
+                          : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
+                      }`}>
+                        
+                        {/* Header block info */}
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-3">
+                          <div className="flex items-start gap-3">
+                            {/* Card level checkbox */}
+                            <div className="pt-1 select-none">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedReportIDs(prev => [...prev, report.VerifikasiID]);
+                                  } else {
+                                    setSelectedReportIDs(prev => prev.filter(id => id !== report.VerifikasiID));
+                                  }
+                                }}
+                                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                  LAPID: {report.VerifikasiID.substring(0,12)}
+                                </span>
+                                <span className="text-blue-800 text-xs font-extrabold">
+                                  Bulan {report.BulanPelaporan} / {report.TahunPelaporan} &bull; {report.JenisPeriode}
+                                </span>
+                              </div>
+                              
+                              <h4 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
+                                {matchKPM?.NamaKepalaKeluarga || 'No Name'} 
+                                <span className="text-xs font-normal text-slate-500 tracking-wide font-mono">({report.NomorKK})</span>
+                              </h4>
+                              
+                              <p className="text-[11px] text-slate-500">
+                                Penerima: KPM ID {matchKPM?.KPMID} &bull; Desa {matchKPM?.Desa}, Kec. {matchKPM?.Kecamatan}
+                              </p>
+                            </div>
                           </div>
-                          
-                          <h4 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
-                            {matchKPM?.NamaKepalaKeluarga || 'No Name'} 
-                            <span className="text-xs font-normal text-slate-500 tracking-wide font-mono">({report.NomorKK})</span>
-                          </h4>
-                          
-                          <p className="text-[11px] text-slate-500">
-                            Penerima: KPM ID {matchKPM?.KPMID} &bull; Desa {matchKPM?.Desa}, Kec. {matchKPM?.Kecamatan}
-                          </p>
-                        </div>
 
                         {/* Status action layout based on current status */}
                         <div className="flex items-center gap-2">
@@ -1639,7 +1872,6 @@ export default function DashboardAdmin({
                 </div>
               )}
             </div>
-
           </div>
         )}
 
@@ -1707,6 +1939,68 @@ export default function DashboardAdmin({
                   <Download className="w-4 h-4 text-emerald-600" />
                   <span>Ekspor CSV (Excel)</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Filter Panel KPM */}
+            <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 space-y-3">
+              <span className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
+                <Filter className="w-4 h-4 text-blue-600" />
+                <span>Penyaringan & Filter Cari KPM</span>
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                {/* Search query field */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Cari No. KK atau Nama KPM..."
+                    value={kpmSearchQuery}
+                    onChange={(e) => setKpmSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border border-slate-250 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                {/* Status select field */}
+                <div>
+                  <select
+                    value={kpmStatusFilter}
+                    onChange={(e) => setKpmStatusFilter(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-slate-250 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="Semua">Semua Status KPM</option>
+                    <option value="Aktif">Status: Aktif</option>
+                    <option value="Tidak Aktif">Status: Tidak Aktif</option>
+                  </select>
+                </div>
+
+                {/* Desa select field */}
+                <div>
+                  <select
+                    value={kpmDesaFilter}
+                    onChange={(e) => setKpmDesaFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-250 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 uppercase font-semibold"
+                  >
+                    <option value="Semua">Semua Kelurahan</option>
+                    {Array.from(new Set(kpmList.map(k => k.Desa).filter(Boolean).map(d => d.toUpperCase()))).sort().map(desa => (
+                      <option key={desa} value={desa}>{desa}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Pendamping select field */}
+                <div>
+                  <select
+                    value={kpmPendampingFilter}
+                    onChange={(e) => setKpmPendampingFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-250 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="Semua">Semua Pendamping</option>
+                    {Array.from(new Set(kpmList.map(k => k.NamaPendamping).filter(Boolean))).sort().map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -1938,22 +2232,102 @@ export default function DashboardAdmin({
             {/* Table layout representing registered KPM masters */}
             <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
               <table className="w-full text-left text-xs divide-y divide-slate-100">
-                <thead className="bg-slate-50 text-slate-700 font-bold uppercase tracking-wide text-[10px]">
+                <thead className="bg-slate-50 text-slate-700 font-bold uppercase tracking-wide text-[10px] select-none">
                   <tr>
-                    <th className="px-4 py-3">Nama Kepala / KK</th>
-                    <th className="px-4 py-3">Alamat</th>
-                    <th className="px-4 py-3 text-center">RT</th>
-                    <th className="px-4 py-3 text-center">RW</th>
-                    <th className="px-4 py-3">Kelurahan</th>
-                    <th className="px-4 py-3">Pendamping</th>
+                    <th 
+                      className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => toggleKpmSort('NamaKepalaKeluarga')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Nama Kepala / KK</span>
+                        {kpmSortKey === 'NamaKepalaKeluarga' && (
+                          <span className="text-blue-600 font-bold">{kpmSortOrder === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => toggleKpmSort('Alamat')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Alamat</span>
+                        {kpmSortKey === 'Alamat' && (
+                          <span className="text-blue-600 font-bold">{kpmSortOrder === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      className="px-4 py-3 text-center cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => toggleKpmSort('RT')}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>RT</span>
+                        {kpmSortKey === 'RT' && (
+                          <span className="text-blue-600 font-bold">{kpmSortOrder === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      className="px-4 py-3 text-center cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => toggleKpmSort('RW')}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>RW</span>
+                        {kpmSortKey === 'RW' && (
+                          <span className="text-blue-600 font-bold">{kpmSortOrder === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => toggleKpmSort('Desa')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Kelurahan</span>
+                        {kpmSortKey === 'Desa' && (
+                          <span className="text-blue-600 font-bold">{kpmSortOrder === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => toggleKpmSort('NamaPendamping')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Pendamping</span>
+                        {kpmSortKey === 'NamaPendamping' && (
+                          <span className="text-blue-600 font-bold">{kpmSortOrder === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
+                    </th>
                     <th className="px-4 py-3">Komponen Ibu/Anak/Lansia/Dis.</th>
-                    <th className="px-4 py-3 text-center">Agregat</th>
-                    <th className="px-4 py-3 text-center">Status</th>
+                    <th 
+                      className="px-4 py-3 text-center cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => toggleKpmSort('TotalAgregatKomponen')}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Agregat</span>
+                        {kpmSortKey === 'TotalAgregatKomponen' && (
+                          <span className="text-blue-600 font-bold">{kpmSortOrder === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      className="px-4 py-3 text-center cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => toggleKpmSort('StatusKPM')}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Status</span>
+                        {kpmSortKey === 'StatusKPM' && (
+                          <span className="text-blue-600 font-bold">{kpmSortOrder === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
+                    </th>
                     <th className="px-4 py-3 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700 leading-normal">
-                  {kpmList.map((k) => (
+                  {paginatedKpmList.map((k) => (
                     <tr key={k.KPMID} className="hover:bg-slate-50/50">
                       
                       <td className="px-4 py-3 space-y-0.5">
@@ -2033,8 +2407,43 @@ export default function DashboardAdmin({
 
                     </tr>
                   ))}
+                  {paginatedKpmList.length === 0 && (
+                    <tr>
+                      <td colSpan={10} className="px-4 py-8 text-center text-slate-400 italic font-medium">
+                        Tidak ada data KPM yang cocok dengan kriteria filter penyaringan.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white border border-slate-200 rounded-xl p-4 text-xs font-semibold text-slate-600">
+              <div>
+                Menampilkan <span className="font-bold text-slate-850">{totalKpmItems === 0 ? 0 : startIndex + 1}</span> sampai <span className="font-bold text-slate-850">{Math.min(startIndex + kpmItemsPerPage, totalKpmItems)}</span> dari <span className="font-bold text-slate-850">{totalKpmItems}</span> keluarga (KPM)
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={kpmCurrentPage === 1}
+                  onClick={() => setKpmCurrentPage(prev => Math.max(prev - 1, 1))}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-bold text-slate-700 transition"
+                >
+                  Sebelumnya
+                </button>
+                <div className="flex items-center gap-1 text-xs">
+                  Halaman <span className="font-bold text-slate-850">{kpmCurrentPage}</span> dari <span className="font-bold text-slate-850">{totalKpmPages}</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={kpmCurrentPage === totalKpmPages}
+                  onClick={() => setKpmCurrentPage(prev => Math.min(prev + 1, totalKpmPages))}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-bold text-slate-700 transition"
+                >
+                  Selanjutnya
+                </button>
+              </div>
             </div>
 
           </div>
@@ -2113,6 +2522,24 @@ export default function DashboardAdmin({
 
             </div>
 
+          </div>
+        )}
+
+        {/* SUBTAB 5: RIWAYAT LAPORAN KPM HEALTH */}
+        {activeSubTab === 'riwayat' && (
+          <div className="space-y-6">
+            <div className="space-y-1">
+              <h3 className="font-bold text-slate-850 text-base">Riwayat Penyerahan Laporan KPM</h3>
+              <p className="text-xs text-slate-500">
+                Gunakan menu di bawah ini untuk mencari dan melihat seluruh rekaman riwayat pelaporan verifikasi KPM Kesehatan secara detail.
+              </p>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <RiwayatKPM
+                initialKK={initialKK}
+                isProduction={isProduction}
+              />
+            </div>
           </div>
         )}
 

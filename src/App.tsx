@@ -20,6 +20,7 @@ type AppView = 'beranda' | 'wizard' | 'riwayat' | 'admin';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('beranda');
+  const [adminInitialTab, setAdminInitialTab] = useState<'monitoring' | 'validasi' | 'master' | 'rekap' | 'riwayat'>('monitoring');
   
   // Realtime Production vs Demo mode switch state stored locally
   const [isProduction, setIsProduction] = useState<boolean>(() => {
@@ -229,23 +230,10 @@ export default function App() {
                 <span>Verifikasi Mandiri</span>
               </button>
 
-              <button
-                id="nav-riwayat"
-                onClick={() => { setCurrentView('riwayat'); setSubmissionSuccessInfo(null); }}
-                className={`px-3 py-2 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                  currentView === 'riwayat' 
-                    ? 'bg-slate-100 text-slate-900' 
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-              >
-                <FileText className="w-4 h-4 text-purple-600" />
-                <span>Riwayat</span>
-              </button>
-
               {portalRole === 'admin' && (
                 <button
                   id="nav-admin"
-                  onClick={() => { setCurrentView('admin'); setSubmissionSuccessInfo(null); }}
+                  onClick={() => { setAdminInitialTab('monitoring'); setCurrentView('admin'); setSubmissionSuccessInfo(null); }}
                   className={`px-3 py-2 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                     currentView === 'admin' 
                       ? 'bg-slate-100 text-slate-900' 
@@ -297,7 +285,10 @@ export default function App() {
         {currentView === 'beranda' && (
           <Beranda 
             onStartVerification={() => handleStartVerif('')}
-            onGoToRiwayat={() => setCurrentView('riwayat')}
+            onGoToRiwayat={() => {
+              setAdminInitialTab('riwayat');
+              setCurrentView('admin');
+            }}
             onGoToAdmin={() => setCurrentView('admin')}
             portalRole={portalRole}
           />
@@ -312,14 +303,6 @@ export default function App() {
           />
         )}
 
-        {currentView === 'riwayat' && (
-          <RiwayatKPM 
-            initialKK={prepopulatedKK}
-            onGoToWizard={() => handleStartVerif('')}
-            isProduction={isProduction}
-          />
-        )}
-
         {currentView === 'admin' && (
           <DashboardAdmin 
             onBackToHome={() => setCurrentView('beranda')}
@@ -328,6 +311,8 @@ export default function App() {
             }}
             isProduction={isProduction}
             onToggleProduction={handleToggleProduction}
+            initialSubTab={adminInitialTab}
+            initialKK={prepopulatedKK}
           />
         )}
 
@@ -400,9 +385,10 @@ export default function App() {
                 onClick={() => {
                   const targetKK = submissionSuccessInfo[0]?.NomorKK;
                   setSubmissionSuccessInfo(null);
-                  // Redirect to history with filters configured for this KK
+                  // Redirect to history with filters configured for this KK inside admin panel
                   setPrepopulatedKK(targetKK);
-                  setCurrentView('riwayat');
+                  setAdminInitialTab('riwayat');
+                  setCurrentView('admin');
                 }}
                 className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-sm"
               >
