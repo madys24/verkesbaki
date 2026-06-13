@@ -1,0 +1,2149 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from 'react';
+import { 
+  BarChart3, Users, CheckSquare, FileText, Ban, CheckCircle2, UserCheck, UserX, AlertCircle,
+  TrendingUp, MapPin, Eye, Calendar, Plus, Trash2, Edit2, RotateCcw, Filter, PieChart, Activity,
+  Lock, ShieldAlert, Key, LogIn, EyeOff, Sparkles, Globe, Server, Check,
+  Baby, Accessibility, Heart, Download, Upload, LogOut, Search
+} from 'lucide-react';
+import { MockDatabase, INDONESIA_REGIONAL } from '../data/mockDb';
+import { MasterKPM, VerifikasiPKH, DetailKomponenVerifikasi, DokumenVerifikasi } from '../types';
+import { DBService } from '../utils/dbService';
+import { auth, googleSignIn } from '../utils/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+
+export default function DashboardAdmin({ 
+  onBackToHome, 
+  onSelectKKForKPM, 
+  isProduction = false,
+  onToggleProduction
+}: { 
+  onBackToHome?: () => void; 
+  onSelectKKForKPM?: (kk: string) => void; 
+  isProduction?: boolean; 
+  onToggleProduction?: (prod: boolean) => void;
+} = {}) {
+  // Admin Authentication State
+  const [isAdminAuthorized, setIsAdminAuthorized] = useState<boolean>(() => {
+    return sessionStorage.getItem('pkh_admin_authorized') === 'true';
+  });
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  
+  // Track Firebase authenticated user for automatic admin permission matching
+  const [firebaseUser, setFirebaseUser] = useState<any>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setFirebaseUser(user);
+      if (user) {
+        // Automatically authorize the main user's email or registered administrative emails as Super Admin!
+        if (user.email === 'androsendy@gmail.com' || user.email === 'admin@pkh.go.id') {
+          setIsAdminAuthorized(true);
+          sessionStorage.setItem('pkh_admin_authorized', 'true');
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleAdminCredentialsLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    
+    // Standard secure operator credentials for Mode Produksi
+    if (adminUsername.toLowerCase() === 'admin' && adminPassword === 'pkhproduksi2026') {
+      setIsAdminAuthorized(true);
+      sessionStorage.setItem('pkh_admin_authorized', 'true');
+    } else {
+      setLoginError('ID Operator atau Kata Sandi salah. Silakan coba lagi.');
+    }
+  };
+
+  const handleAdminGoogleLogin = async () => {
+    setLoginError('');
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        const u = result.user;
+        if (u.email === 'androsendy@gmail.com' || u.email === 'admin@pkh.go.id') {
+          setIsAdminAuthorized(true);
+          sessionStorage.setItem('pkh_admin_authorized', 'true');
+        } else {
+          setLoginError(`Akun Google (${u.email}) tersambung, namun tidak terdaftar sebagai admin utama. Silakan gunakan kredensial Operator Admin yang sah.`);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setLoginError('Autentikasi Google gagal atau dibatalkan.');
+    }
+  };
+
+  const handleBypassAccess = () => {
+    setIsAdminAuthorized(true);
+    sessionStorage.setItem('pkh_admin_authorized', 'true');
+  };
+
+  const [activeSubTab, setActiveSubTab] = useState<'monitoring' | 'validasi' | 'master' | 'rekap'>('monitoring');
+
+  // Monitoring subtab local search and filter states
+  const [monitoringSearch, setMonitoringSearch] = useState('');
+  const [monitoringStatusFilter, setMonitoringStatusFilter] = useState<'Semua' | 'Belum' | 'Tersubmit' | 'Tervalidasi' | 'Ditolak'>('Semua');
+
+  // DB States
+  const [kpmList, setKpmList] = useState<MasterKPM[]>([]);
+  const [verifList, setVerifList] = useState<VerifikasiPKH[]>([]);
+  const [detailList, setDetailList] = useState<DetailKomponenVerifikasi[]>([]);
+  const [dokumenList, setDokumenList] = useState<DokumenVerifikasi[]>([]);
+
+  // Validasi filter state
+  const [validasiFilterStatus, setValidasiFilterStatus] = useState<string>('Semua');
+
+  // Pendamping, Desa and RW Filters for Monitoring
+  const [selectedPendampingFilter, setSelectedPendampingFilter] = useState<string>('Semua');
+  const [selectedDesaFilter, setSelectedDesaFilter] = useState<string>('Semua');
+  const [selectedRwListFilter, setSelectedRwListFilter] = useState<string[]>([]);
+
+  // Master KPM Form states (for Add/Edit)
+  const [isEditingKPM, setIsEditingKPM] = useState<boolean>(false);
+  const [editingKPMItem, setEditingKPMItem] = useState<MasterKPM | null>(null);
+  const [kpmFormOpen, setKpmFormOpen] = useState<boolean>(false);
+  const [kpmFormError, setKpmFormError] = useState<string>('');
+
+  // KPM Form Input attributes
+  const [formKK, setFormKK] = useState('');
+  const [formNama, setFormNama] = useState('');
+  const [formAlamat, setFormAlamat] = useState('');
+  const [formRT, setFormRT] = useState('');
+  const [formRW, setFormRW] = useState('');
+  const [formDesa, setFormDesa] = useState('Pabelan');
+  const [formKec, setFormKec] = useState('Kartasura');
+  const [formNamaPendamping, setFormNamaPendamping] = useState('');
+  const [formIbuHamil, setFormIbuHamil] = useState(0);
+  const [formBalita, setFormBalita] = useState(0);
+  const [formLansia, setFormLansia] = useState(0);
+  const [formDisabilitas, setFormDisabilitas] = useState(0);
+  const [formStatus, setFormStatus] = useState<'Aktif' | 'Tidak Aktif'>('Aktif');
+
+  // Modal ImageViewer state
+  const [modalImage, setModalImage] = useState<{ url: string; title: string } | null>(null);
+
+  const fetchDB = async () => {
+    try {
+      const kpmData = await DBService.getKPMList();
+      setKpmList(kpmData);
+    } catch (err) {
+      console.warn("Gagal mendapatkan KPM untuk admin portal:", err);
+      setKpmList(MockDatabase.getMasterKPM());
+    }
+
+    let loadedReports: VerifikasiPKH[] = [];
+    try {
+      const verifData = await DBService.getAllReports();
+      setVerifList(verifData);
+      loadedReports = verifData;
+    } catch (err) {
+      console.warn("Gagal mendapatkan Verifikasi untuk admin portal:", err);
+      const fallbackVerif = MockDatabase.getVerifikasi();
+      setVerifList(fallbackVerif);
+      loadedReports = fallbackVerif;
+    }
+
+    try {
+      const details = await DBService.getAllDetails(loadedReports);
+      setDetailList(details);
+    } catch (err) {
+      setDetailList(MockDatabase.getDetailKomponen());
+    }
+
+    try {
+      const docs = await DBService.getAllDokumen(loadedReports);
+      setDokumenList(docs);
+    } catch (err) {
+      setDokumenList(MockDatabase.getDokumen());
+    }
+  };
+
+  useEffect(() => {
+    fetchDB();
+  }, []);
+
+  const openAddKpmForm = () => {
+    setIsEditingKPM(false);
+    setEditingKPMItem(null);
+    setFormKK('');
+    setFormNama('');
+    setFormAlamat('');
+    setFormRT('');
+    setFormRW('');
+    setFormDesa('Pabelan');
+    setFormKec('Kartasura');
+    setFormNamaPendamping('');
+    setFormIbuHamil(0);
+    setFormBalita(0);
+    setFormLansia(0);
+    setFormDisabilitas(0);
+    setFormStatus('Aktif');
+    setKpmFormError('');
+    setKpmFormOpen(true);
+  };
+
+  const openEditKpmForm = (k: MasterKPM) => {
+    setIsEditingKPM(true);
+    setEditingKPMItem(k);
+    setFormKK(k.NomorKK);
+    setFormNama(k.NamaKepalaKeluarga);
+    setFormAlamat(k.Alamat);
+    setFormRT(k.RT || '');
+    setFormRW(k.RW || '');
+    setFormDesa(k.Desa);
+    setFormKec(k.Kecamatan);
+    setFormNamaPendamping(k.NamaPendamping || '');
+    setFormIbuHamil(k.JumlahIbuHamil);
+    setFormBalita(k.JumlahBalita);
+    setFormLansia(k.JumlahLansia);
+    setFormDisabilitas(k.JumlahDisabilitas);
+    setFormStatus(k.StatusKPM);
+    setKpmFormError('');
+    setKpmFormOpen(true);
+  };
+
+  const handleSaveKpm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setKpmFormError('');
+
+    if (formKK.length !== 16 || isNaN(Number(formKK))) {
+      setKpmFormError('Nomor KK harus berupa 16 digit angka numerik.');
+      return;
+    }
+    if (!formNama.trim()) {
+      setKpmFormError('Nama Kepala Keluarga wajib diisi.');
+      return;
+    }
+    if (!formNamaPendamping.trim()) {
+      setKpmFormError('Nama Pendamping wajib diisi.');
+      return;
+    }
+
+    try {
+      if (isEditingKPM && editingKPMItem) {
+        await DBService.updateMasterKPM({
+          ...editingKPMItem,
+          NomorKK: formKK,
+          NamaKepalaKeluarga: formNama,
+          Alamat: formAlamat,
+          RT: formRT,
+          RW: formRW,
+          Desa: formDesa,
+          Kecamatan: formKec,
+          NamaPendamping: formNamaPendamping,
+          JumlahIbuHamil: Number(formIbuHamil),
+          JumlahBalita: Number(formBalita),
+          JumlahLansia: Number(formLansia),
+          JumlahDisabilitas: Number(formDisabilitas),
+          StatusKPM: formStatus
+        });
+      } else {
+        // Check duplicate KK
+        const exist = kpmList.find(x => x.NomorKK === formKK);
+        if (exist) {
+          setKpmFormError('Nomor KK ini sudah terdaftar dalam sistem.');
+          return;
+        }
+        await DBService.addMasterKPM({
+          KPMID: `KPM-${Date.now()}`,
+          NomorKK: formKK,
+          NamaKepalaKeluarga: formNama,
+          Alamat: formAlamat,
+          RT: formRT,
+          RW: formRW,
+          Desa: formDesa,
+          Kecamatan: formKec,
+          NamaPendamping: formNamaPendamping,
+          JumlahIbuHamil: Number(formIbuHamil),
+          JumlahBalita: Number(formBalita),
+          JumlahLansia: Number(formLansia),
+          JumlahDisabilitas: Number(formDisabilitas),
+          StatusKPM: formStatus,
+          Kabupaten: 'Kabupaten Sukoharjo',
+          TotalAgregatKomponen: Number(formIbuHamil) + Number(formBalita) + Number(formLansia) + Number(formDisabilitas)
+        });
+      }
+
+      setKpmFormOpen(false);
+      fetchDB();
+    } catch (err) {
+      setKpmFormError('Terjadi kesalahan saat menyimpan data ke Firestore: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleDeleteKpm = async (id: string) => {
+    if (confirm('Apakah Anda yakin ingin menghapus data KPM ini? Data verifikasi lama yang bersangkutan tidak akan terhapus, tetapi KK ini tidak bisa lagi dicari.')) {
+      try {
+        await DBService.deleteKPM(id);
+        fetchDB();
+      } catch (err) {
+        alert('Gagal menghapus KPM dari Firestore: ' + (err instanceof Error ? err.message : String(err)));
+      }
+    }
+  };
+
+  // EXPORT MASTER KPM (JSON format)
+  const handleExportKPM = () => {
+    try {
+      const dataStr = JSON.stringify(kpmList, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+      const exportFileDefaultName = `master_kpm_export_${new Date().toISOString().slice(0, 10)}.json`;
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+    } catch (err) {
+      alert('Gagal mengekspor JSON: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  // EXPORT MASTER KPM (CSV format)
+  const handleExportCSV = () => {
+    try {
+      const headers = ['KPMID', 'NomorKK', 'NamaKepalaKeluarga', 'Alamat', 'RT', 'RW', 'Desa', 'Kecamatan', 'JumlahIbuHamil', 'JumlahBalita', 'JumlahLansia', 'JumlahDisabilitas', 'StatusKPM', 'NamaPendamping'];
+      const rows = kpmList.map(k => [
+        k.KPMID,
+        k.NomorKK,
+        k.NamaKepalaKeluarga,
+        k.Alamat || '',
+        k.RT || '',
+        k.RW || '',
+        k.Desa || '',
+        k.Kecamatan || '',
+        k.JumlahIbuHamil,
+        k.JumlahBalita,
+        k.JumlahLansia,
+        k.JumlahDisabilitas,
+        k.StatusKPM,
+        k.NamaPendamping || ''
+      ].map(val => `"${String(val).replace(/"/g, '""')}"`).join(','));
+
+      const csvContent = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `master_kpm_export_${new Date().toISOString().slice(0, 10)}.csv`);
+      link.click();
+    } catch (err) {
+      alert('Gagal mengekspor CSV: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  // IMPORT MASTER KPM (Supports JSON and CSV)
+  const handleImportFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const text = e.target?.result as string;
+        let importedList: Partial<MasterKPM>[] = [];
+
+        if (file.name.endsWith('.json')) {
+          importedList = JSON.parse(text);
+        } else if (file.name.endsWith('.csv')) {
+          // Parse CSV simply
+          const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+          if (lines.length < 2) {
+            alert('CSV kosong atau format salah.');
+            return;
+          }
+          const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+          
+          for (let i = 1; i < lines.length; i++) {
+            const rowData: string[] = [];
+            let current = '';
+            let inQuotes = false;
+            for (let charIdx = 0; charIdx < lines[i].length; charIdx++) {
+              const char = lines[i][charIdx];
+              if (char === '"') {
+                inQuotes = !inQuotes;
+              } else if (char === ',' && !inQuotes) {
+                rowData.push(current.trim());
+                current = '';
+              } else {
+                current += char;
+              }
+            }
+            rowData.push(current.trim());
+
+            const item: any = {};
+            headers.forEach((header, index) => {
+              let val = rowData[index] || '';
+              val = val.replace(/^"|"$/g, '');
+              item[header] = val;
+            });
+            importedList.push(item);
+          }
+        } else {
+          alert('Format berkas tidak didukung. Harap upload .json atau .csv');
+          return;
+        }
+
+        if (!Array.isArray(importedList)) {
+          alert('Format data salah. Harus berupa list/array.');
+          return;
+        }
+
+        let count = 0;
+        for (const item of importedList) {
+          if (!item.NomorKK || !item.NamaKepalaKeluarga) continue;
+
+          // Parse RT/RW from Alamat if not explicitly declared in import file
+          const kpmId = item.KPMID || `KPM-${Date.now()}-${count}`;
+          const isRT = item.RT || extractRTVal(item.Alamat || '');
+          const isRW = item.RW || extractRWVal(item.Alamat || '');
+
+          const finalKpm: MasterKPM = {
+            KPMID: kpmId,
+            NomorKK: String(item.NomorKK),
+            NamaKepalaKeluarga: String(item.NamaKepalaKeluarga),
+            Alamat: String(item.Alamat || ''),
+            RT: String(isRT),
+            RW: String(isRW),
+            Desa: String(item.Desa || 'Pabelan'),
+            Kecamatan: String(item.Kecamatan || 'Kartasura'),
+            Kabupaten: String(item.Kabupaten || 'Kabupaten Sukoharjo'),
+            JumlahIbuHamil: Number(item.JumlahIbuHamil) || 0,
+            JumlahBalita: Number(item.JumlahBalita) || 0,
+            JumlahLansia: Number(item.JumlahLansia) || 0,
+            JumlahDisabilitas: Number(item.JumlahDisabilitas) || 0,
+            TotalAgregatKomponen: Number(item.JumlahIbuHamil || 0) + Number(item.JumlahBalita || 0) + Number(item.JumlahLansia || 0) + Number(item.JumlahDisabilitas || 0),
+            StatusKPM: (item.StatusKPM === 'Tidak Aktif' ? 'Tidak Aktif' : 'Aktif'),
+            NamaPendamping: String(item.NamaPendamping || 'Siti Rahmaawati')
+          };
+
+          await DBService.addMasterKPM(finalKpm);
+          count++;
+        }
+
+        alert(`Selesai! Berhasil mengimpor ${count} KPM baru ke database.`);
+        fetchDB();
+      } catch (err) {
+        alert('Gagal mengimpor berkas: ' + (err instanceof Error ? err.message : String(err)));
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  // Safe file downloader
+  const handleDownloadFile = async (fileUrl: string, originalName: string) => {
+    try {
+      if (!fileUrl) {
+        alert('Tautan gambar kosong atau tidak valid.');
+        return;
+      }
+      
+      // If it's a data url / base64
+      if (fileUrl.startsWith('data:')) {
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = originalName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+
+      // External HTTP triggers can have CORS blocks, we first try standard secure link flow with download trigger
+      const link = document.createElement('a');
+      link.href = fileUrl;
+      link.target = '_blank';
+      link.download = originalName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      // Direct prompt fallback
+      window.open(fileUrl, '_blank');
+    }
+  };
+
+  const handleUpdateStatus = async (id: string, status: 'Tersubmit' | 'Tervalidasi' | 'Ditolak') => {
+    try {
+      await DBService.updateVerificationStatus(id, status);
+      fetchDB();
+    } catch (err) {
+      alert('Gagal memperbarui status di Firestore: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  // METRICS COMPUTATIONS
+  // Extract RT & RW helper
+  const extractRTVal = (alamat: string): string => {
+    const match = alamat.match(/RT\s*(\d+)/i);
+    if (match) {
+      return match[1].padStart(2, '0');
+    }
+    return '';
+  };
+
+  const extractRWVal = (alamat: string): string => {
+    const match = alamat.match(/RW\s*(\d+)/i);
+    if (match) {
+      return match[1].padStart(2, '0');
+    }
+    return '';
+  };
+
+  // Extract RW helper
+  const extractRW = (alamat: string): string => {
+    const match = alamat.match(/RW\s*(\d+)/i);
+    if (match) {
+      return `RW ${match[1].padStart(2, '0')}`;
+    }
+    return '';
+  };
+
+  // Extract unique elements based on cascading rules
+  const uniquePendampingList = Array.from(
+    new Set(
+      kpmList
+        .map(k => k.NamaPendamping)
+        .filter((n): n is string => !!n && n.trim() !== '')
+    )
+  ).sort();
+
+  const uniqueDesaList = Array.from(
+    new Set(
+      kpmList
+        .filter(k => selectedPendampingFilter === 'Semua' ? true : k.NamaPendamping === selectedPendampingFilter)
+        .map(k => k.Desa)
+        .filter((d): d is string => !!d && d.trim() !== '')
+    )
+  ).sort();
+
+  const uniqueRwList = Array.from(
+    new Set(
+      kpmList
+        .filter(k => {
+          const matchPendamping = selectedPendampingFilter === 'Semua' ? true : k.NamaPendamping === selectedPendampingFilter;
+          const matchDesa = selectedDesaFilter === 'Semua' ? true : k.Desa === selectedDesaFilter;
+          return matchPendamping && matchDesa;
+        })
+        .map(k => extractRW(k.Alamat))
+        .filter((rw): rw is string => !!rw)
+    )
+  ).sort();
+
+  // Reset cascading Desa selector when invalid
+  const uniqueDesaListString = uniqueDesaList.join(',');
+  useEffect(() => {
+    if (selectedDesaFilter !== 'Semua' && !uniqueDesaList.includes(selectedDesaFilter)) {
+      setSelectedDesaFilter('Semua');
+    }
+  }, [selectedPendampingFilter, uniqueDesaListString]);
+
+  // Reset cascading RW selector when invalid
+  const uniqueRwListString = uniqueRwList.join(',');
+  useEffect(() => {
+    setSelectedRwListFilter(prev => {
+      const filtered = prev.filter(rw => uniqueRwList.includes(rw));
+      if (filtered.length !== prev.length) {
+        return filtered;
+      }
+      return prev;
+    });
+  }, [selectedPendampingFilter, selectedDesaFilter, uniqueRwListString]);
+
+  // Filter KPM list and Verifikasi list by the selected companion name, Desa, and RW (multi select checklist) in the Monitoring filter
+  const filteredKpmList = kpmList.filter(k => {
+    const matchPendamping = selectedPendampingFilter === 'Semua' ? true : k.NamaPendamping === selectedPendampingFilter;
+    const matchDesa = selectedDesaFilter === 'Semua' ? true : k.Desa === selectedDesaFilter;
+    const matchRw = selectedRwListFilter.length === 0 ? true : selectedRwListFilter.includes(extractRW(k.Alamat));
+    return matchPendamping && matchDesa && matchRw;
+  });
+
+  const filteredVerifList = verifList.filter(v => {
+    const parentKPM = kpmList.find(k => k.NomorKK === v.NomorKK);
+    if (!parentKPM) return false;
+    const matchPendamping = selectedPendampingFilter === 'Semua' ? true : parentKPM.NamaPendamping === selectedPendampingFilter;
+    const matchDesa = selectedDesaFilter === 'Semua' ? true : parentKPM.Desa === selectedDesaFilter;
+    const matchRw = selectedRwListFilter.length === 0 ? true : selectedRwListFilter.includes(extractRW(parentKPM.Alamat));
+    return matchPendamping && matchDesa && matchRw;
+  });
+
+  const totalKPM = filteredKpmList.length;
+  const totalLaporan = filteredVerifList.length;
+
+  const totalBulanan = filteredVerifList.filter(v => v.JenisPeriode === 'Bulanan').length;
+  const totalTriwulanan = filteredVerifList.filter(v => v.JenisPeriode === 'Triwulanan').length;
+
+  // Reported vs unreported count
+  const distinctKPMHavereported = Array.from(new Set(filteredVerifList.map(v => v.NomorKK)));
+  const reportedKPMCount = filteredKpmList.filter(k => distinctKPMHavereported.includes(k.NomorKK)).length;
+  const unreportedKPMCount = Math.max(0, totalKPM - reportedKPMCount);
+
+  // Stats per month name
+  const getReportsPerMonth = () => {
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const map: Record<string, number> = {};
+    months.forEach(m => { map[m] = 0; });
+    
+    filteredVerifList.forEach(v => {
+      if (months.includes(v.BulanPelaporan)) {
+        map[v.BulanPelaporan]++;
+      }
+    });
+
+    return map;
+  };
+
+  const reportsPerMonth = getReportsPerMonth();
+
+  // Stats for types of health components aggregated
+  const totalIbuHamilCount = filteredKpmList.reduce((acc, curr) => acc + curr.JumlahIbuHamil, 0);
+  const totalBalitaCount = filteredKpmList.reduce((acc, curr) => acc + curr.JumlahBalita, 0);
+  const totalLansiaCount = filteredKpmList.reduce((acc, curr) => acc + curr.JumlahLansia, 0);
+  const totalDisabilitasCount = filteredKpmList.reduce((acc, curr) => acc + curr.JumlahDisabilitas, 0);
+
+  // Groupings for Rekap
+  const groupRekapByDesa = () => {
+    const result: Record<string, { KPM: number; Laporan: number; IbuHamil: number; Balita: number; Lansia: number; Disabilitas: number }> = {};
+    
+    filteredKpmList.forEach(k => {
+      if (!result[k.Desa]) {
+        result[k.Desa] = { KPM: 0, Laporan: 0, IbuHamil: 0, Balita: 0, Lansia: 0, Disabilitas: 0 };
+      }
+      result[k.Desa].KPM++;
+      result[k.Desa].IbuHamil += k.JumlahIbuHamil;
+      result[k.Desa].Balita += k.JumlahBalita;
+      result[k.Desa].Lansia += k.JumlahLansia;
+      result[k.Desa].Disabilitas += k.JumlahDisabilitas;
+    });
+
+    filteredVerifList.forEach(v => {
+      const parentKPM = filteredKpmList.find(k => k.NomorKK === v.NomorKK);
+      if (parentKPM && result[parentKPM.Desa]) {
+        result[parentKPM.Desa].Laporan++;
+      }
+    });
+
+    return result;
+  };
+
+  const groupRekapByKecamatan = () => {
+    const result: Record<string, { KPM: number; Laporan: number }> = {};
+    filteredKpmList.forEach(k => {
+      if (!result[k.Kecamatan]) {
+        result[k.Kecamatan] = { KPM: 0, Laporan: 0 };
+      }
+      result[k.Kecamatan].KPM++;
+    });
+
+    filteredVerifList.forEach(v => {
+      const parentKPM = filteredKpmList.find(k => k.NomorKK === v.NomorKK);
+      if (parentKPM && result[parentKPM.Kecamatan]) {
+        result[parentKPM.Kecamatan].Laporan++;
+      }
+    });
+
+    return result;
+  };
+
+  const listDesa = groupRekapByDesa();
+  const listKec = groupRekapByKecamatan();
+
+  // Reset helper
+  const handleResetDBData = () => {
+    if (confirm('Apakah Anda mau me-reset data simulasi kembali ke setelan default awal? Seluruh laporan buatan Anda akan terhapus.')) {
+      MockDatabase.resetDB();
+      fetchDB();
+    }
+  };
+
+  if (!isAdminAuthorized) {
+    return (
+      <div className="max-w-md mx-auto my-12 bg-white rounded-2xl border border-slate-200/80 shadow-xl overflow-hidden">
+        {/* Header decor */}
+        <div className="bg-gradient-to-br from-blue-900 to-indigo-950 p-6 text-white text-center space-y-2 relative">
+          <button
+            type="button"
+            onClick={() => {
+              if (onToggleProduction) {
+                onToggleProduction(!isProduction);
+              }
+            }}
+            className={`absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] uppercase font-bold tracking-wider cursor-pointer transition-all shadow-sm ${
+              isProduction 
+                ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-400 hover:bg-emerald-905' 
+                : 'bg-indigo-950/80 border-indigo-500/30 text-indigo-300 hover:bg-indigo-905'
+            }`}
+            title="Klik untuk mengubah mode sistem"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isProduction ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-400 animate-pulse'}`}></span>
+            {isProduction ? 'Live / Pro 🚀' : 'Mode Demo ✨'}
+          </button>
+          <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-white/15">
+            <Lock className="w-6 h-6 text-indigo-300" />
+          </div>
+          <h2 id="login-title" className="text-lg font-bold tracking-tight">Kementerian Sosial RI</h2>
+          <p className="text-xs text-indigo-200/90 max-w-xs mx-auto">Portal Admin & Supervisor Verifikasi Keluarga Penerima Manfaat (KPM) PKH</p>
+        </div>
+
+        {/* Form Body */}
+        <div className="p-6 space-y-5">
+          <form onSubmit={handleAdminCredentialsLogin} className="space-y-4">
+            {loginError && (
+              <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-650 flex items-start gap-2 animate-shake">
+                <ShieldAlert className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <span>{loginError}</span>
+              </div>
+            )}
+            
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">ID Operator / Username</label>
+              <div className="relative">
+                <input
+                  id="admin-username"
+                  type="text"
+                  required
+                  placeholder="Masukkan username (contoh: admin)"
+                  value={adminUsername}
+                  onChange={(e) => setAdminUsername(e.target.value)}
+                  className="w-full px-3.5 py-2 pl-9 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition"
+                />
+                <Users className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">Kata Sandi Sesi</label>
+              <div className="relative">
+                <input
+                  id="admin-password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  placeholder="Masukkan kata sandi produksi"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  className="w-full px-3.5 py-2 pl-9 pr-10 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition"
+                />
+                <Key className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650 cursor-pointer flex items-center justify-center h-5 w-5 bg-transparent"
+                >
+                  {showPassword ? <EyeOff className="w-4.5 h-4.5 text-slate-400 hover:text-slate-600" /> : <Eye className="w-4.5 h-4.5 text-slate-400 hover:text-slate-600" />}
+                </button>
+              </div>
+              {/* Demo hints removed safely */}
+            </div>
+
+            <button
+              id="btn-admin-login"
+              type="submit"
+              className="w-full py-2.5 bg-gradient-to-r from-blue-700 to-indigo-850 hover:from-blue-800 hover:to-indigo-900 active:from-blue-950 active:to-indigo-950 text-white font-bold text-sm rounded-xl shadow-lg transition duration-150 transform active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer border-none"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Verifikasi Keamanan Admins</span>
+            </button>
+          </form>
+
+          <div className="relative flex items-center justify-center py-1">
+            <div className="border-t border-slate-250 w-full absolute"></div>
+            <span className="bg-white px-3 text-[10px] text-slate-450 font-bold relative z-10 uppercase tracking-wide">Atau dengan</span>
+          </div>
+
+          {/* Google SSO Admin */}
+          <button
+            onClick={handleAdminGoogleLogin}
+            className="w-full py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-200 font-bold text-xs rounded-xl transition duration-150 flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+          >
+            <span className="bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-black">G</span>
+            <span>Masuk dengan Google (androsendy@gmail.com)</span>
+          </button>
+
+          {/* Quick Demo Access Bypass Button */}
+          {!isProduction && (
+            <div className="pt-3 border-t border-slate-100 flex flex-col items-center">
+              <p className="text-[10px] text-slate-400 text-center mb-2 leading-relaxed">
+                * Mode Demo: Untuk keperluan evaluasi instan tanpa memasukkan sandi, Anda bisa mengklik tombol di bawah ini.
+              </p>
+              <button
+                onClick={handleBypassAccess}
+                className="px-4 py-1.5 bg-emerald-55 hover:bg-emerald-100/90 text-emerald-800 border border-emerald-150 rounded-full font-bold text-xs tracking-tight transition duration-150 cursor-pointer flex items-center gap-1"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                <span>Akses Cepat Mode Demo ✨</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200/90 shadow-sm overflow-hidden min-h-[500px]">
+      
+      {/* Admin Title Nav */}
+      <div className="bg-blue-900 px-6 py-5 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="space-y-1">
+          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/30 border border-blue-400/30 text-blue-300 text-[10px] uppercase font-bold tracking-wider">
+            Sistem Evaluasi Pendamping PKH {isProduction && '• LIVE'}
+          </div>
+          <h2 className="text-xl font-bold tracking-tight">Dashboard Admin & Verifikator</h2>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Dynamic mode switch inline in admin title nav */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onToggleProduction) {
+                onToggleProduction(!isProduction);
+              }
+            }}
+            className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+              isProduction 
+                ? 'bg-emerald-600 hover:bg-emerald-750 text-white border-emerald-500' 
+                : 'bg-indigo-600 hover:bg-indigo-750 text-indigo-50 border-indigo-550'
+            }`}
+            title="Klik untuk mengubah mode sistem"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isProduction ? 'bg-white animate-pulse' : 'bg-indigo-300'}`}></span>
+            {isProduction ? 'Live • Produksi 🚀' : 'Demo • Simulasi ✨'}
+          </button>
+
+          {!isProduction && (
+            <button
+              onClick={handleResetDBData}
+              className="px-3 py-1 bg-white/10 hover:bg-white/20 active:bg-white/30 text-white rounded text-xs transition-colors cursor-pointer border border-white/10"
+            >
+              Reset Contoh Data 🔄
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              setIsAdminAuthorized(false);
+              sessionStorage.removeItem('pkh_admin_authorized');
+              if (onBackToHome) {
+                onBackToHome();
+              }
+            }}
+            className="px-3 py-1 bg-red-650 hover:bg-red-750 text-white rounded text-xs font-bold transition-all cursor-pointer border border-red-550 flex items-center gap-1 shadow-sm"
+            title="Keluar dari mode admin"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Keluar Admin 🚪</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Sub Tabs Toggle for Admin section */}
+      <div className="bg-slate-50 border-b border-slate-200 flex items-center overflow-x-auto whitespace-nowrap">
+        <button
+          onClick={() => setActiveSubTab('monitoring')}
+          className={`px-5 py-3 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 cursor-pointer ${
+            activeSubTab === 'monitoring' 
+              ? 'border-blue-600 text-blue-700 bg-white' 
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          Monitoring Verifikasi 📊
+        </button>
+        <button
+          onClick={() => setActiveSubTab('validasi')}
+          className={`px-5 py-3 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 cursor-pointer ${
+            activeSubTab === 'validasi' 
+              ? 'border-blue-600 text-blue-700 bg-white' 
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <CheckSquare className="w-4 h-4" />
+          Validasi Laporan 📋
+        </button>
+        <button
+          onClick={() => setActiveSubTab('master')}
+          className={`px-5 py-3 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 cursor-pointer ${
+            activeSubTab === 'master' 
+              ? 'border-blue-600 text-blue-700 bg-white' 
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Master Data KPM 👨‍👩‍👧‍👦
+        </button>
+        <button
+          onClick={() => setActiveSubTab('rekap')}
+          className={`px-5 py-3 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 cursor-pointer ${
+            activeSubTab === 'rekap' 
+              ? 'border-blue-600 text-blue-700 bg-white' 
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <TrendingUp className="w-4 h-4" />
+          Rekapitulasi Wilayah 🗺️
+        </button>
+      </div>
+
+      <div className="p-6 md:p-8">
+        
+        {/* SUBTAB 1: MONITORING VERIFIKASI */}
+        {activeSubTab === 'monitoring' && (
+          <div className="space-y-6">
+            
+            {/* Filter Wilayah (Pendamping, Desa, RW) bar */}
+            <div className="p-5 bg-gradient-to-r from-blue-50/60 to-indigo-50/60 border border-blue-150/70 rounded-xl space-y-4">
+              <div className="flex items-center gap-2 text-slate-700 pb-2 border-b border-blue-100/60">
+                <Filter className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  Panel Filter Monitoring Wilayah (Sampai Tingkat Desa & RW)
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 1. Filter Pendamping */}
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide">Nama Pendamping:</label>
+                  <select
+                    value={selectedPendampingFilter}
+                    onChange={(e) => setSelectedPendampingFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+                  >
+                    <option value="Semua">Semua Pendamping (Tanpa Filter)</option>
+                    {uniquePendampingList.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 2. Filter Desa */}
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide">Desa / Kelurahan:</label>
+                  <select
+                    value={selectedDesaFilter}
+                    onChange={(e) => setSelectedDesaFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+                  >
+                    <option value="Semua">Semua Kelurahan / Desa</option>
+                    {uniqueDesaList.map(desa => (
+                      <option key={desa} value={desa}>{desa}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. Filter RW (Checklist Multi) */}
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide">Rukun Warga (RW):</label>
+                    {uniqueRwList.length > 0 && (
+                      <span className="text-[9px] font-extrabold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded">
+                        {selectedRwListFilter.length === 0 ? 'Semua Terpilih' : `${selectedRwListFilter.length} Terpilih`}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {uniqueRwList.length === 0 ? (
+                    <div className="px-3 py-2 bg-slate-100/50 border border-slate-200 text-slate-400 rounded-lg text-xs font-semibold">
+                      Tidak ada RW tersedia
+                    </div>
+                  ) : (
+                    <div className="border border-slate-200 bg-white rounded-lg p-2 max-h-[110px] overflow-y-auto space-y-1 shadow-inner">
+                      {/* Checkbox item for "Pilih Semua" */}
+                      <label className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-slate-50 cursor-pointer text-xs font-bold text-slate-800">
+                        <input
+                          type="checkbox"
+                          checked={selectedRwListFilter.length === 0}
+                          onChange={() => setSelectedRwListFilter([])}
+                          className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                        />
+                        <span>Pilih Semua RW</span>
+                      </label>
+                      <div className="h-px bg-slate-100 my-1" />
+                      {/* Regular checklist items */}
+                      <div className="grid grid-cols-2 gap-1 bg-white">
+                        {uniqueRwList.map(rw => {
+                          const isChecked = selectedRwListFilter.includes(rw);
+                          return (
+                            <label 
+                              key={rw} 
+                              className={`flex items-center gap-1.5 p-1 rounded border transition-all cursor-pointer text-[11px] font-semibold select-none ${
+                                isChecked 
+                                  ? 'bg-blue-50 border-blue-300 text-blue-950 font-bold' 
+                                  : 'bg-white border-slate-150 text-slate-705 hover:bg-slate-50'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  if (isChecked) {
+                                    setSelectedRwListFilter(prev => prev.filter(x => x !== rw));
+                                  } else {
+                                    setSelectedRwListFilter(prev => [...prev, rw]);
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                              />
+                              <span className="truncate">{rw}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Reset filter button row if active */}
+              {(selectedPendampingFilter !== 'Semua' || selectedDesaFilter !== 'Semua' || selectedRwListFilter.length > 0) && (
+                <div className="flex justify-end pt-1 row-reverse">
+                  <button
+                    onClick={() => {
+                      setSelectedPendampingFilter('Semua');
+                      setSelectedDesaFilter('Semua');
+                      setSelectedRwListFilter([]);
+                    }}
+                    className="px-4 py-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 bg-white hover:bg-blue-50/50 border border-blue-200 hover:border-blue-300 rounded-lg transition-all cursor-pointer shadow-sm flex items-center gap-1.5 animate-pulse"
+                  >
+                    <span>Reset Semua Saringan 🔄</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Top aggregate metric cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="flex justify-between items-center text-slate-500">
+                  <span className="text-xs font-bold uppercase">Total KPM Terdaftar</span>
+                  <Users className="w-5 h-5 text-blue-600" />
+                </div>
+                <h4 className="text-2xl font-extrabold text-slate-800 mt-2">{totalKPM}</h4>
+                <p className="text-[10px] text-slate-400 mt-1 capitalize">Berdasarkan data input KPM Desa</p>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="flex justify-between items-center text-slate-500">
+                  <span className="text-xs font-bold uppercase">Laporan Masuk</span>
+                  <FileText className="w-5 h-5 text-purple-600" />
+                </div>
+                <h4 className="text-2xl font-extrabold text-slate-800 mt-2">{totalLaporan} Laporan</h4>
+                <div className="flex items-center gap-1 text-[10px] text-purple-700 font-semibold mt-1">
+                  <span>{totalBulanan} Bulanan</span> &bull; <span>{totalTriwulanan} Triwulan (Bulk)</span>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="flex justify-between items-center text-slate-500">
+                  <span className="text-xs font-bold uppercase">Tingkat Pelaporan KK</span>
+                  <UserCheck className="w-5 h-5 text-green-600" />
+                </div>
+                <h4 className="text-2xl font-extrabold text-slate-800 mt-2">
+                  {totalKPM > 0 ? Math.round((reportedKPMCount / totalKPM) * 100) : 0}%
+                </h4>
+                <p className="text-[10px] text-green-700 font-semibold mt-1">
+                  {reportedKPMCount} Sudah Melapor / {unreportedKPMCount} Belum
+                </p>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="flex justify-between items-center text-slate-500">
+                  <span className="text-xs font-bold uppercase">Laporan Perlu Review</span>
+                  <Activity className="w-5 h-5 text-amber-600" />
+                </div>
+                <h4 className="text-2xl font-extrabold text-slate-800 mt-2">
+                  {verifList.filter(v => v.Status === 'Tersubmit').length}
+                </h4>
+                <p className="text-[10px] text-amber-700 font-semibold mt-1">
+                  Menunggu validasi pendamping desa
+                </p>
+              </div>
+            </div>
+
+            {/* Monthly distribution rekayasa bar charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Distribution by Months table */}
+              <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-3 lg:col-span-2">
+                <h4 className="text-xs font-extrabold uppercase text-slate-600 tracking-wider">Grafik Masukannya Laporan Tiap Bulan (2026)</h4>
+                
+                <div className="space-y-2.5 pt-2">
+                  {Object.entries(reportsPerMonth).map(([month, count]) => {
+                    const maxVal = Math.max(...Object.values(reportsPerMonth), 1);
+                    const percentage = Math.max(5, (count / maxVal) * 100);
+                    
+                    return (
+                      <div key={month} className="flex items-center gap-3 text-xs text-slate-700">
+                        <span className="w-20 truncate font-semibold">{month}</span>
+                        <div className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden relative">
+                          <div 
+                            style={{ width: `${percentage}%` }} 
+                            className={`h-full rounded-full transition-all duration-300 ${
+                              count > 0 ? 'bg-gradient-to-r from-blue-500 to-indigo-600' : 'bg-slate-200'
+                            }`}
+                          />
+                        </div>
+                        <span className="w-12 font-mono font-bold text-slate-800 text-right">{count} Laporan</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Components aggregate counts detail */}
+              <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-4">
+                <h4 className="text-xs font-extrabold uppercase text-slate-600 tracking-wider flex items-center justify-between">
+                  <span>Distribusi Komponen Terdaftar</span>
+                  <PieChart className="w-4 h-4 text-slate-400" />
+                </h4>
+                
+                <div className="space-y-4 pt-2">
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center font-semibold">
+                      <span className="flex items-center gap-1.5 text-slate-700">
+                        <Heart className="w-4 h-4 text-red-500 fill-red-100" />
+                        <span>Ibu Hamil</span>
+                      </span>
+                      <span className="font-bold text-slate-950 font-mono sm:text-xs text-[11px]">{totalIbuHamilCount} Slot</span>
+                    </div>
+                    <div className="h-1.5 bg-red-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-red-500" style={{ width: `${Math.min(100, (totalIbuHamilCount / Math.max(totalKPM, 1)) * 40)}%` }}></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center font-semibold">
+                      <span className="flex items-center gap-1.5 text-slate-700">
+                        <Baby className="w-4 h-4 text-blue-500" />
+                        <span>Balita</span>
+                      </span>
+                      <span className="font-bold text-slate-950 font-mono sm:text-xs text-[11px]">{totalBalitaCount} Slot</span>
+                    </div>
+                    <div className="h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-500" style={{ width: `${Math.min(100, (totalBalitaCount / Math.max(totalKPM, 1)) * 40)}%` }}></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center font-semibold">
+                      <span className="flex items-center gap-1.5 text-slate-700">
+                        <Activity className="w-4 h-4 text-amber-500" />
+                        <span>Lansia</span>
+                      </span>
+                      <span className="font-bold text-slate-950 font-mono sm:text-xs text-[11px]">{totalLansiaCount} Slot</span>
+                    </div>
+                    <div className="h-1.5 bg-amber-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, (totalLansiaCount / Math.max(totalKPM, 1)) * 40)}%` }}></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center font-semibold">
+                      <span className="flex items-center gap-1.5 text-slate-700">
+                        <Accessibility className="w-4 h-4 text-purple-500" />
+                        <span>Disabilitas</span>
+                      </span>
+                      <span className="font-bold text-slate-950 font-mono sm:text-xs text-[11px]">{totalDisabilitasCount} Slot</span>
+                    </div>
+                    <div className="h-1.5 bg-purple-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-purple-500" style={{ width: `${Math.min(100, (totalDisabilitasCount / Math.max(totalKPM, 1)) * 40)}%` }}></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-[11px] text-blue-900 leading-relaxed font-medium">
+                  💡 Angka-angka di atas merupakan agregat kumulatif dari seluruh profil KK aktif penerima manfaat Program Keluarga Harapan.
+                </div>
+              </div>
+
+            </div>
+
+            {/* NEW SECTION: DETIL MONITORING PENERIMA (KPM) DAN BUKTI FISIK FOTO */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 space-y-6">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="space-y-1">
+                  <h4 className="text-sm font-extrabold uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                    <span>📋</span> Detail Monitoring & Bukti Foto Verifikasi KPM
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Daftar lengkap KPM aktif di wilayah terpilih berserta riwayat isian form kesehatan dan berkas foto bukti fisik di lapangan.
+                  </p>
+                </div>
+                
+                {/* Search & Filter Inputs within Monitoring section */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  {/* Search bar */}
+                  <div className="relative flex-1 sm:w-64 w-full">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Cari Nama / No. KK..."
+                      value={monitoringSearch}
+                      onChange={(e) => setMonitoringSearch(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 border border-slate-205 rounded-lg text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all bg-white"
+                    />
+                  </div>
+
+                  {/* Status checklist filter */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wide shrink-0">Status:</span>
+                    <select
+                      value={monitoringStatusFilter}
+                      onChange={(e: any) => setMonitoringStatusFilter(e.target.value)}
+                      className="px-3 py-2 bg-white border border-slate-205 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 cursor-pointer shadow-sm w-full sm:w-auto"
+                    >
+                      <option value="Semua">Semua Status</option>
+                      <option value="Belum">Belum Melapor ⚠️</option>
+                      <option value="Tersubmit">Tersubmit (Menunggu) ⏳</option>
+                      <option value="Tervalidasi">Tervalidasi (Selesai) ✅</option>
+                      <option value="Ditolak">Ditolak (Perlu Perbaikan) ❌</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Rows Container */}
+              <div className="space-y-4">
+                {(() => {
+                  // 1. First, search filter
+                  const searchLower = monitoringSearch.toLowerCase();
+                  let displayList = filteredKpmList.filter(k => 
+                    k.NamaKepalaKeluarga.toLowerCase().includes(searchLower) || 
+                    k.NomorKK.includes(searchLower)
+                  );
+
+                  // 2. Status filter
+                  displayList = displayList.filter(k => {
+                    const reports = verifList.filter(v => v.NomorKK === k.NomorKK);
+                    const latestReport = reports.length > 0 
+                      ? [...reports].sort((a,b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime())[0]
+                      : null;
+
+                    if (monitoringStatusFilter === 'Semua') return true;
+                    if (monitoringStatusFilter === 'Belum') return !latestReport;
+                    
+                    return latestReport && latestReport.Status === monitoringStatusFilter;
+                  });
+
+                  if (displayList.length === 0) {
+                    return (
+                      <div className="text-center py-10 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 text-slate-400 space-y-1">
+                        <span className="text-xl">🔍</span>
+                        <p className="text-xs font-semibold">Tidak ada data KPM yang sesuai saringan ini.</p>
+                      </div>
+                    );
+                  }
+
+                  return displayList.map(kpm => {
+                    // Get all reports of this KPM
+                    const kpmReports = verifList.filter(v => v.NomorKK === kpm.NomorKK)
+                      .sort((a,b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());
+                    
+                    const hasReported = kpmReports.length > 0;
+                    const latestReport = hasReported ? kpmReports[0] : null;
+
+                    return (
+                      <div key={kpm.KPMID} className="p-5 border border-slate-200 hover:border-blue-300 rounded-xl hover:shadow hover:bg-slate-50/15 transition-all duration-200 bg-white space-y-4">
+                        {/* Row Header: KPM Area Profile */}
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-slate-50/60 p-3 rounded-lg border border-slate-100">
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-bold text-blue-800 bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded-md font-mono">
+                                No. KK: {kpm.NomorKK}
+                              </span>
+                              <span className="text-[10px] text-slate-505 font-medium flex items-center gap-1">
+                                <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                                RT {kpm.RT || '—'} / RW {kpm.RW || '—'}, Kel. {kpm.Desa}, {kpm.Kecamatan}
+                              </span>
+                            </div>
+                            <h5 className="font-extrabold text-sm text-slate-900 flex items-center gap-2 mt-1">
+                              {kpm.NamaKepalaKeluarga}
+                              <span className="text-[10px] text-slate-400 font-mono font-normal">(KPMID: {kpm.KPMID})</span>
+                            </h5>
+                          </div>
+
+                          {/* Latest Status */}
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Pendamping: <span className="text-slate-800 font-extrabold">{kpm.NamaPendamping || '—'}</span></span>
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide shadow-sm border ${
+                              !latestReport 
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : latestReport.Status === 'Tervalidasi'
+                                  ? 'bg-green-50 text-green-700 border-green-200'
+                                  : latestReport.Status === 'Ditolak'
+                                    ? 'bg-red-50 text-red-700 border-red-200'
+                                    : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                            }`}>
+                              {!latestReport ? '⚠️ Belum Melapor' : `${latestReport.Status === 'Tersubmit' ? '⏳ Menunggu Validasi' : latestReport.Status === 'Tervalidasi' ? '✅ Tervalidasi' : '❌ Ditolak'}`}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Middle Block: Components Slot & Reporting info */}
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+                          {/* Left: Components registered */}
+                          <div className="md:col-span-4 space-y-2">
+                            <span className="text-[10px] font-bold text-slate-450 uppercase tracking-widest block">Komponen Terdaftar di KK:</span>
+                            <div className="grid grid-cols-2 gap-2 bg-slate-50/40 p-2.5 border border-slate-100 rounded-lg">
+                              <span className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5">
+                                <Heart className="w-3.5 h-3.5 text-red-500" />
+                                Ibu Hamil: <strong className="text-slate-900 font-mono">{kpm.JumlahIbuHamil}</strong>
+                              </span>
+                              <span className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5">
+                                <Baby className="w-3.5 h-3.5 text-blue-500" />
+                                Balita: <strong className="text-slate-900 font-mono">{kpm.JumlahBalita}</strong>
+                              </span>
+                              <span className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5">
+                                <Activity className="w-3.5 h-3.5 text-amber-500" />
+                                Lansia: <strong className="text-slate-900 font-mono">{kpm.JumlahLansia}</strong>
+                              </span>
+                              <span className="text-[11px] font-semibold text-slate-705 flex items-center gap-1.5">
+                                <Accessibility className="w-3.5 h-3.5 text-purple-500" />
+                                Disabilitas: <strong className="text-slate-900 font-mono">{kpm.JumlahDisabilitas}</strong>
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Right/Mid: Compilation of report and PHOTOS */}
+                          <div className="md:col-span-8 space-y-3">
+                            {!hasReported ? (
+                              <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 flex flex-col justify-center items-center text-center h-full min-h-[90px]">
+                                <span className="text-slate-300 text-lg mb-1">📭</span>
+                                <span className="text-xs text-slate-400 font-bold italic">Belum pernah melaporkan berkas verifikasi untuk periode berjalan.</span>
+                              </div>
+                            ) : (
+                              <div className="space-y-4">
+                                {kpmReports.slice(0, 3).map((report) => {
+                                  const relatedDetails = detailList.filter(d => d.VerifikasiID === report.VerifikasiID);
+                                  const relatedDocs = dokumenList.filter(doc => doc.VerifikasiID === report.VerifikasiID);
+
+                                  return (
+                                    <div key={report.VerifikasiID} className="border border-slate-200/80 p-3.5 rounded-xl space-y-3 bg-slate-50/25">
+                                      {/* Report header */}
+                                      <div className="flex justify-between items-center bg-white px-2.5 py-1.5 rounded-lg border border-slate-100 flex-wrap gap-2 text-xs shadow-sm">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-extrabold text-blue-900">
+                                            Laporan: Bulan {report.BulanPelaporan} / {report.TahunPelaporan}
+                                          </span>
+                                          <span className="bg-indigo-50 border border-indigo-100 text-[10px] text-indigo-700 font-extrabold px-1.5 py-0.5 rounded font-mono">
+                                            {report.JenisPeriode}
+                                          </span>
+                                        </div>
+                                        <span className="text-[10px] text-slate-400 font-mono">
+                                          Dikirim: {new Date(report.CreatedAt).toLocaleDateString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                      </div>
+
+                                      {/* Document Photos Grid and Verifikasi Details */}
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                                        {/* Member verified */}
+                                        <div className="space-y-2">
+                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Anggota Terverifikasi ({relatedDetails.length}):</span>
+                                          <div className="bg-white border border-slate-200 rounded-lg max-h-[110px] overflow-y-auto divide-y divide-slate-100 p-1.5 shadow-inner">
+                                            {relatedDetails.length === 0 ? (
+                                              <p className="text-[10px] text-slate-400 italic py-1 text-center font-semibold">Tidak ada rincian anggota terverifikasi.</p>
+                                            ) : (
+                                              relatedDetails.map((det) => (
+                                                <div key={det.DetailID} className="p-1 flex justify-between items-center gap-2">
+                                                  <div>
+                                                    <span className="font-extrabold text-slate-800 block text-[10px] leading-tight">{det.NamaAnggota || '—'}</span>
+                                                    <span className="text-[8px] text-slate-400 uppercase leading-none">{det.NamaKomponenPKH} &bull; {det.JenisKomponen}</span>
+                                                  </div>
+                                                  <span className="text-[8px] font-mono bg-blue-50 text-blue-900 border border-blue-100 px-1 py-0.5 rounded shrink-0 font-bold">
+                                                    Resi: {det.NomorResi}
+                                                  </span>
+                                                </div>
+                                              ))
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Physical Photo File attachments with PREVIEW AND DOWNLOAD */}
+                                        <div className="space-y-2">
+                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Hasil Foto & Bukti Verifikasi:</span>
+                                          {relatedDocs.length === 0 ? (
+                                            <div className="bg-white border border-slate-200 rounded-lg p-3 text-center italic text-slate-400 text-[10.5px] font-semibold shadow-inner">
+                                              Tidak ada berkas bukti foto yang diunggah.
+                                            </div>
+                                          ) : (
+                                            <div className="grid grid-cols-1 gap-2">
+                                              {relatedDocs.map((doc) => (
+                                                <div key={doc.DokumenID} className="bg-white border border-slate-200 p-2 rounded-lg flex items-center justify-between gap-2 shadow-sm">
+                                                  <div className="flex items-center gap-2 truncate">
+                                                    {/* Little image thumbnail */}
+                                                    <div className="w-8 h-8 rounded bg-slate-100 overflow-hidden relative shrink-0 border border-slate-150 flex items-center justify-center">
+                                                      {doc.FileURL ? (
+                                                        <img 
+                                                          src={doc.FileURL} 
+                                                          alt="Bukti" 
+                                                          className="w-full h-full object-cover cursor-zoom-in" 
+                                                          referrerPolicy="no-referrer"
+                                                          onClick={() => setModalImage({ url: doc.FileURL, title: doc.JenisDokumen })}
+                                                        />
+                                                      ) : (
+                                                        <FileText className="w-4 h-4 text-slate-400" />
+                                                      )}
+                                                    </div>
+                                                    <div className="truncate">
+                                                      <span className="font-bold text-slate-800 text-[10px] block truncate leading-tight">{doc.JenisDokumen}</span>
+                                                      <span className="text-[8px] text-slate-400 truncate block font-mono leading-none">{doc.NamaFile}</span>
+                                                    </div>
+                                                  </div>
+
+                                                  {/* Icons for view (Eye) and download (Download) */}
+                                                  <div className="flex items-center gap-1.5 shrink-0">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => setModalImage({ url: doc.FileURL, title: doc.JenisDokumen })}
+                                                      className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 border border-slate-150 hover:border-blue-200 rounded transition-colors cursor-pointer"
+                                                      title="Lihat Foto Bukti"
+                                                    >
+                                                      <Eye className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => handleDownloadFile(doc.FileURL, doc.NamaFile)}
+                                                      className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 border border-slate-150 hover:border-emerald-200 rounded transition-colors cursor-pointer"
+                                                      title="Unduh File Foto"
+                                                    >
+                                                      <Download className="w-3.5 h-3.5" />
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Catatan / remark if any */}
+                                      {report.Catatan && (
+                                        <div className="p-2.5 border border-amber-100 bg-amber-50/20 text-slate-800 rounded-lg text-[10.5px] leading-snug">
+                                          <strong>Catatan Lapangan KPM:</strong> "{report.Catatan}"
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {kpmReports.length > 3 && (
+                                  <p className="text-[10px] text-slate-400 italic text-right">+ {kpmReports.length - 3} laporan sebelumnya</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* SUBTAB 2: VALIDASI LAPORAN MASUK */}
+        {activeSubTab === 'validasi' && (
+          <div className="space-y-6">
+            
+            {/* Filter statuses control bar */}
+            <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-slate-100 rounded-lg border border-slate-200">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700 uppercase">Saring Status:</span>
+                <div className="inline-flex gap-1">
+                  {['Semua', 'Tersubmit', 'Tervalidasi', 'Ditolak'].map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => setValidasiFilterStatus(st)}
+                      className={`px-3 py-1 text-xs font-semibold rounded cursor-pointer transition-all ${
+                        validasiFilterStatus === st 
+                          ? 'bg-blue-600 text-white shadow-sm' 
+                          : 'bg-white text-slate-600 hover:text-slate-800 border border-slate-200'
+                      }`}
+                    >
+                      {st}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-xs text-slate-500">
+                Ditemukan <strong>{
+                  verifList.filter(v => validasiFilterStatus === 'Semua' ? true : v.Status === validasiFilterStatus).length
+                }</strong> laporan verifikasi kesehatan mandiri.
+              </div>
+            </div>
+
+            {/* List to perform validations */}
+            <div className="space-y-4">
+              {verifList
+                .filter(v => validasiFilterStatus === 'Semua' ? true : v.Status === validasiFilterStatus)
+                .sort((a,b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime())
+                .map((report) => {
+                  const matchKPM = kpmList.find(k => k.NomorKK === report.NomorKK);
+                  const relatedDetails = detailList.filter(d => d.VerifikasiID === report.VerifikasiID);
+                  const relatedDocs = dokumenList.filter(doc => doc.VerifikasiID === report.VerifikasiID);
+
+                  return (
+                    <div key={report.VerifikasiID} className="p-5 bg-white border border-slate-200 rounded-xl shadow-sm space-y-4">
+                      
+                      {/* Header block info */}
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                              LAPID: {report.VerifikasiID.substring(0,12)}
+                            </span>
+                            <span className="text-blue-800 text-xs font-extrabold">
+                              Bulan {report.BulanPelaporan} / {report.TahunPelaporan} &bull; {report.JenisPeriode}
+                            </span>
+                          </div>
+                          
+                          <h4 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
+                            {matchKPM?.NamaKepalaKeluarga || 'No Name'} 
+                            <span className="text-xs font-normal text-slate-500 tracking-wide font-mono">({report.NomorKK})</span>
+                          </h4>
+                          
+                          <p className="text-[11px] text-slate-500">
+                            Penerima: KPM ID {matchKPM?.KPMID} &bull; Desa {matchKPM?.Desa}, Kec. {matchKPM?.Kecamatan}
+                          </p>
+                        </div>
+
+                        {/* Status action layout based on current status */}
+                        <div className="flex items-center gap-2">
+                          {report.Status === 'Tersubmit' ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleUpdateStatus(report.VerifikasiID, 'Tervalidasi')}
+                                className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Validasi Laporan
+                              </button>
+                              <button
+                                onClick={() => handleUpdateStatus(report.VerifikasiID, 'Ditolak')}
+                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <Ban className="w-3.5 h-3.5" />
+                                Tolak
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                                report.Status === 'Tervalidasi' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                              }`}>
+                                {report.Status === 'Tervalidasi' ? 'Approved (Tervalidasi)' : 'Ditolak (Rejected)'}
+                              </span>
+                              <button
+                                onClick={() => handleUpdateStatus(report.VerifikasiID, 'Tersubmit')}
+                                className="p-1 px-2 text-[10px] text-slate-400 hover:text-slate-600 border border-slate-200 bg-white rounded cursor-pointer"
+                                title="Kembalikan Status"
+                              >
+                                Undo 🔄
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Details of health members & documentation */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs leading-normal">
+                        
+                        {/* Member Names & codes verification */}
+                        <div className="md:col-span-2 space-y-3">
+                          <div className="flex justify-between items-center text-slate-500 text-[10px] uppercase font-bold tracking-wider">
+                            <span>Daftar Anggota Keluarga Terverifikasi:</span>
+                            <span className="text-slate-700 normal-case">Total: {relatedDetails.length}</span>
+                          </div>
+
+                          <div className="bg-slate-50 rounded-lg border border-slate-200 divide-y divide-slate-100 p-1">
+                            {relatedDetails.length === 0 ? (
+                              <p className="p-3 text-center text-slate-400 italic">No details found.</p>
+                            ) : (
+                              relatedDetails.map((det) => (
+                                <div key={det.DetailID} className="p-2 flex.cols sm:flex justify-between items-center gap-3">
+                                  <div>
+                                    <span className="font-bold text-slate-800 block text-[11px]">{det.NamaAnggota || '—'}</span>
+                                    <span className="text-[9px] text-slate-400 uppercase tracking-widest">{det.NamaKomponenPKH} &bull; {det.JenisKomponen}</span>
+                                  </div>
+                                  <span className="font-mono text-[9px] bg-indigo-50 border border-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded">
+                                    Resi: {det.NomorResi}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+
+                          {/* Catatan verif */}
+                          <div className="p-3 bg-amber-50 rounded-lg border border-amber-100 text-amber-950">
+                            <strong>Catatan KPM:</strong> "{report.Catatan || 'Tanpa catatan'}"
+                          </div>
+                        </div>
+
+                        {/* File lists with view modal trigger */}
+                        <div className="space-y-3">
+                          <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Berkas Bukti Fisik Lapangan:</p>
+                          
+                          <div className="flex flex-col gap-2.5">
+                            {relatedDocs.map((doc) => (
+                              <div key={doc.DokumenID} className="bg-slate-50 hover:bg-slate-100 border border-slate-200/80 p-2.5 rounded-lg flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  <span className="font-bold text-slate-800 text-[10px] block truncate">{doc.JenisDokumen}</span>
+                                  <span className="text-[8px] text-slate-400 truncate block font-mono">{doc.NamaFile}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setModalImage({ url: doc.FileURL, title: doc.JenisDokumen })}
+                                    className="text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded cursor-pointer flex items-center gap-1 shrink-0"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    Buka
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadFile(doc.FileURL, doc.NamaFile)}
+                                    className="text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded cursor-pointer flex items-center gap-1 shrink-0"
+                                    title={`Unduh ${doc.JenisDokumen}`}
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    Unduh
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                      </div>
+
+                    </div>
+                  );
+                })}
+
+              {verifList.filter(v => validasiFilterStatus === 'Semua' ? true : v.Status === validasiFilterStatus).length === 0 && (
+                <div className="text-center py-12 border bg-slate-50 rounded-xl space-y-2 text-slate-400">
+                  <span className="text-2xl">📋</span>
+                  <p className="text-xs font-semibold">Tidak ada laporan verifikasi yang sesuai dengan kriteria filter.</p>
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
+        {/* SUBTAB 3: MASTER DATA KPM MANAGEMENT */}
+        {activeSubTab === 'master' && (
+          <div className="space-y-6">
+            
+            {/* Header controls */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div className="space-y-1">
+                <h3 className="font-bold text-slate-850 text-base">Kelola Master Data Keluarga Penerima Manfaat</h3>
+                <p className="text-xs text-slate-500">
+                  Perubahan jumlah komponen kesehatan di sini akan langsung mempengaruhi resi verifikasi otomatis yang terbentuk pada form isian KPM.
+                </p>
+              </div>
+
+              <button
+                id="btn-tambah-kpm-baru"
+                onClick={openAddKpmForm}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Tambah KPM Baru
+              </button>
+            </div>
+
+            {/* Import & Export Operations Panel */}
+            <div className="p-4 bg-slate-50/60 rounded-xl border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-xs">
+              <div className="space-y-1">
+                <span className="font-extrabold text-slate-800 text-xs block flex items-center gap-1">
+                  <span>📂</span> Operasi Data Master KPM
+                </span>
+                <span className="text-slate-500 text-[11px] block">
+                  Unggah berkas untuk impor data KPM masal, atau unduh daftar KPM aktif ke dalam format .JSON / .CSV (bisa dibuka di Excel).
+                </span>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Impor Button */}
+                <label className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition-all shadow-sm">
+                  <Upload className="w-4 h-4" />
+                  <span>Impor Berkas (.JSON / .CSV)</span>
+                  <input 
+                    type="file" 
+                    accept=".json,.csv" 
+                    onChange={handleImportFile} 
+                    className="hidden" 
+                  />
+                </label>
+
+                {/* Ekspor JSON Button */}
+                <button
+                  onClick={handleExportKPM}
+                  className="px-3.5 py-2 bg-white text-slate-700 hover:text-slate-900 border border-slate-200 hover:border-slate-350 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                >
+                  <Download className="w-4 h-4 text-slate-500" />
+                  <span>Ekspor JSON</span>
+                </button>
+
+                {/* Ekspor CSV Button */}
+                <button
+                  onClick={handleExportCSV}
+                  className="px-3.5 py-2 bg-white text-slate-700 hover:text-slate-900 border border-slate-200 hover:border-slate-350 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                >
+                  <Download className="w-4 h-4 text-emerald-600" />
+                  <span>Ekspor CSV (Excel)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* KPM Form Open dialog */}
+            {kpmFormOpen && (
+              <div className="p-6 bg-slate-50 border border-slate-200 rounded-xl space-y-4 animate-fade-in">
+                <h4 className="font-bold text-slate-800 text-sm border-b border-slate-200 pb-2 flex items-center gap-1.5">
+                  <span>{isEditingKPM ? '⚙️ Edit Data KPM' : '➕ Registrasi KPM Baru'}</span>
+                </h4>
+
+                <form onSubmit={handleSaveKpm} className="space-y-4 text-xs">
+                  {kpmFormError && (
+                    <div className="p-3 bg-red-100 text-red-800 font-bold border border-red-200 rounded">
+                      ⚠️ {kpmFormError}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* KK */}
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 text-[10px] uppercase">Nomor KK (16 Digit)</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={16}
+                        placeholder="327601xxxxxxxxxx"
+                        disabled={isEditingKPM}
+                        value={formKK}
+                        onChange={(e) => setFormKK(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </div>
+                    {/* Nama Kepala Keluarga */}
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="font-bold text-slate-700 text-[10px] uppercase">Nama Kepala Keluarga</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ketik nama lengkap..."
+                        value={formNama}
+                        onChange={(e) => setFormNama(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white capitalize"
+                      />
+                    </div>
+
+                    {/* Alamat */}
+                    <div className="space-y-1 md:col-span-1">
+                      <label className="font-bold text-slate-700 text-[10px] uppercase">Alamat Jalan / Gg / No.</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Kampung Swadaya Gg. Damai No. 12"
+                        value={formAlamat}
+                        onChange={(e) => setFormAlamat(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </div>
+
+                    {/* RT */}
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 text-[10px] uppercase">RT</label>
+                      <input
+                        type="text"
+                        placeholder="Misal: 02"
+                        maxLength={5}
+                        value={formRT}
+                        onChange={(e) => setFormRT(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </div>
+
+                    {/* RW */}
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 text-[10px] uppercase">RW</label>
+                      <input
+                        type="text"
+                        placeholder="Misal: 03"
+                        maxLength={5}
+                        value={formRW}
+                        onChange={(e) => setFormRW(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </div>
+
+                    {/* Kecamatan Selector */}
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 text-[10px] uppercase">Kecamatan</label>
+                      <select
+                        value={formKec}
+                        onChange={(e) => {
+                          const newKec = e.target.value;
+                          setFormKec(newKec);
+                          const relatedDesas = INDONESIA_REGIONAL.desaList[newKec] || [];
+                          if (relatedDesas.length > 0) {
+                            setFormDesa(relatedDesas[0]);
+                          }
+                        }}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                      >
+                        {INDONESIA_REGIONAL.kecamatanList.map((kec) => (
+                          <option key={kec} value={kec}>{kec}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Desa */}
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 text-[10px] uppercase">Desa / Kelurahan</label>
+                      <select
+                        value={formDesa}
+                        onChange={(e) => setFormDesa(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                      >
+                        {(INDONESIA_REGIONAL.desaList[formKec] || []).map((desa) => (
+                          <option key={desa} value={desa}>{desa}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Nama Pendamping */}
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 text-[10px] uppercase">Nama Pendamping</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ketik nama pendamping aslinya..."
+                        value={formNamaPendamping}
+                        onChange={(e) => setFormNamaPendamping(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </div>
+
+                    {/* Status */}
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 text-[10px] uppercase">Status KPM</label>
+                      <select
+                        value={formStatus}
+                        onChange={(e) => setFormStatus(e.target.value as 'Aktif' | 'Tidak Aktif')}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                      >
+                        <option value="Aktif">Aktif</option>
+                        <option value="Tidak Aktif">Tidak Aktif</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Component input boxes */}
+                  <div className="p-4 bg-white rounded-xl border border-slate-200 text-slate-900 space-y-3">
+                    <h5 className="font-bold uppercase tracking-wider text-slate-700 text-[10px] flex items-center gap-1 pb-1 border-b border-slate-100">
+                      <span>🩺</span>
+                      Beban Komponen Kesehatan Keluarga:
+                    </h5>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      <div className="space-y-1">
+                        <label className="font-semibold block text-[10px]">Jumlah Ibu Hamil</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={5}
+                          value={formIbuHamil}
+                          onChange={(e) => setFormIbuHamil(Number(e.target.value))}
+                          className="w-full px-3 py-1.5 rounded border border-slate-300"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="font-semibold block text-[10px]">Jumlah Balita</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          value={formBalita}
+                          onChange={(e) => setFormBalita(Number(e.target.value))}
+                          className="w-full px-3 py-1.5 rounded border border-slate-300"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="font-semibold block text-[10px]">Jumlah Lansia</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={5}
+                          value={formLansia}
+                          onChange={(e) => setFormLansia(Number(e.target.value))}
+                          className="w-full px-3 py-1.5 rounded border border-slate-300"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="font-semibold block text-[10px]">Jumlah Disabilitas</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={5}
+                          value={formDisabilitas}
+                          onChange={(e) => setFormDisabilitas(Number(e.target.value))}
+                          className="w-full px-3 py-1.5 rounded border border-slate-300"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 text-[10px] text-slate-500 font-semibold text-right">
+                      Total Agregat Komponen Kesehatan: <span className="bg-slate-100 text-slate-800 px-2.0 py-0.5 rounded font-bold font-mono">
+                        {Number(formIbuHamil) + Number(formBalita) + Number(formLansia) + Number(formDisabilitas)} Orang
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Form Trigger Row */}
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setKpmFormOpen(false)}
+                      className="px-4 py-2 hover:bg-slate-200 text-slate-600 font-bold rounded-lg cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-6 py-2 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-lg cursor-pointer"
+                    >
+                      Format Simpan 💾
+                    </button>
+                  </div>
+
+                </form>
+              </div>
+            )}
+
+            {/* Table layout representing registered KPM masters */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
+              <table className="w-full text-left text-xs divide-y divide-slate-100">
+                <thead className="bg-slate-50 text-slate-700 font-bold uppercase tracking-wide text-[10px]">
+                  <tr>
+                    <th className="px-4 py-3">Nama Kepala / KK</th>
+                    <th className="px-4 py-3">Alamat</th>
+                    <th className="px-4 py-3 text-center">RT</th>
+                    <th className="px-4 py-3 text-center">RW</th>
+                    <th className="px-4 py-3">Kelurahan</th>
+                    <th className="px-4 py-3">Pendamping</th>
+                    <th className="px-4 py-3">Komponen Ibu/Anak/Lansia/Dis.</th>
+                    <th className="px-4 py-3 text-center">Agregat</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700 leading-normal">
+                  {kpmList.map((k) => (
+                    <tr key={k.KPMID} className="hover:bg-slate-50/50">
+                      
+                      <td className="px-4 py-3 space-y-0.5">
+                        <span className="font-bold text-slate-900 block">{k.NamaKepalaKeluarga}</span>
+                        <span className="font-mono text-[10px] text-slate-400 block">{k.NomorKK}</span>
+                      </td>
+
+                      <td className="px-4 py-3 truncate max-w-[150px]" title={k.Alamat}>
+                        <span>{k.Alamat}</span>
+                      </td>
+
+                      <td className="px-4 py-3 text-center font-mono font-bold text-slate-850">
+                        {k.RT || extractRTVal(k.Alamat) || '-'}
+                      </td>
+
+                      <td className="px-4 py-3 text-center font-mono font-bold text-slate-850">
+                        {k.RW || extractRWVal(k.Alamat) || '-'}
+                      </td>
+
+                      <td className="px-4 py-3 uppercase font-extrabold text-blue-800 text-[10px]">
+                        {k.Desa}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <span className="font-bold text-slate-800">{k.NamaPendamping || '-'}</span>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          <span className="bg-red-50 text-red-700 border border-red-100 font-semibold px-1 rounded text-[10px]">
+                            Ham: {k.JumlahIbuHamil}
+                          </span>
+                          <span className="bg-blue-50 text-blue-700 border border-blue-100 font-semibold px-1 rounded text-[10px]">
+                            Bal: {k.JumlahBalita}
+                          </span>
+                          <span className="bg-amber-50 text-amber-700 border border-amber-100 font-semibold px-1 rounded text-[10px]">
+                            Lan: {k.JumlahLansia}
+                          </span>
+                          <span className="bg-purple-50 text-purple-700 border border-purple-100 font-semibold px-1 rounded text-[10px]">
+                            Dis: {k.JumlahDisabilitas}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3 font-mono font-bold text-center">
+                        <span className={`px-2 py-0.5 rounded-full ${k.TotalAgregatKomponen > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                          {k.TotalAgregatKomponen}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          k.StatusKPM === 'Aktif' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {k.StatusKPM}
+                        </span>
+                      </td>
+
+                      <td className="px-5 py-3 text-right">
+                        <div className="inline-flex gap-1.5">
+                          <button
+                            onClick={() => openEditKpmForm(k)}
+                            className="p-1 px-2 border border-slate-200 hover:border-blue-400 text-blue-600 rounded cursor-pointer"
+                            title="Edit Profil KPM"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteKpm(k.KPMID)}
+                            className="p-1 px-2 border border-slate-200 hover:border-red-400 text-red-500 rounded cursor-pointer"
+                            title="Hapus KPM"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+        )}
+
+        {/* SUBTAB 4: REKAPITULASI WILAYAH */}
+        {activeSubTab === 'rekap' && (
+          <div className="space-y-6">
+            
+            <div className="space-y-1">
+              <h3 className="font-bold text-slate-850 text-base">Rekapitulasi Indikator Wilayah & Laporan</h3>
+              <p className="text-xs text-slate-500">
+                Pilih tabular rekap untuk memonitor kontribusi partisipasi masyarakat per desa / kelurahan terdaftar.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Rekap per Desa */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                <div className="p-4 bg-slate-100 border-b border-slate-200 font-bold text-xs uppercase text-slate-700 flex items-center justify-between">
+                  <span>Rekapitulasi per Desa / Kelurahan</span>
+                  <MapPin className="w-4 h-4 text-slate-400" />
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs divide-y divide-slate-100">
+                    <thead className="bg-slate-50 font-bold">
+                      <tr>
+                        <th className="px-4 py-2">Nama Desa</th>
+                        <th className="px-4 py-2 text-center">KK Terdaftar</th>
+                        <th className="px-4 py-2 text-center">Komponen Kesehatan</th>
+                        <th className="px-4 py-2 text-center">Laporan Masuk</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {Object.entries(listDesa).map(([desa, stats]) => {
+                        const totalComp = stats.IbuHamil + stats.Balita + stats.Lansia + stats.Disabilitas;
+                        return (
+                          <tr key={desa}>
+                            <td className="px-4 py-2 bg-slate-50 font-semibold">{desa}</td>
+                            <td className="px-4 py-2 text-center font-bold">{stats.KPM} KK</td>
+                            <td className="px-4 py-2 text-center font-mono">
+                              <span>{totalComp} Total</span> <span className="text-[10px] text-slate-400 block">(H:{stats.IbuHamil} B:{stats.Balita} L:{stats.Lansia} D:{stats.Disabilitas})</span>
+                            </td>
+                            <td className="px-4 py-2 text-center font-mono text-blue-700 font-extrabold">{stats.Laporan} Laporan</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Informative advice & Statistics box */}
+              <div className="space-y-6">
+                <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4 shadow-sm">
+                  <h4 className="font-extrabold text-sm text-slate-800 uppercase flex items-center gap-1.5 border-b border-slate-100 pb-2">
+                    <span>💡</span>
+                    <span>Informasi Pelaporan Kecamatan</span>
+                  </h4>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Sistem evaluasi pelaporan berjalan terpusat untuk lingkup <strong>Kecamatan terpilih</strong>. Seluruh proses pengawasan oleh Pendamping di tingkat kelurahan/desa dikonsolidasikan langsung guna mempercepat monitoring program jaminan sosial Keluarga Harapan Kemensos RI.
+                  </p>
+                  
+                  <div className="p-4 rounded-xl bg-teal-50 border border-teal-200 text-teal-950 text-xs leading-relaxed space-y-1.5">
+                    <p className="font-bold flex items-center gap-1">
+                      <span>🛡️</span>
+                      Prinsip Konsistensi Data Wilayah:
+                    </p>
+                    <p>
+                      Kabupaten pelaporan default terkunci pada <strong>Kabupaten Sukoharjo, Provinsi Jawa Tengah</strong>. Seluruh data kelurahan merujuk pada cakupan wilayah pendamping Kemensos kelolaan operator.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
+      </div>
+
+      {/* RE-USABLE PHOTO DIALOG */}
+      {modalImage && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-xl overflow-hidden max-w-2xl w-full border border-slate-300 shadow-2xl relative">
+            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+              <h3 className="font-bold text-sm tracking-wide">{modalImage.title}</h3>
+              <button
+                type="button"
+                onClick={() => setModalImage(null)}
+                className="text-white bg-white/10 hover:bg-white/20 px-3 py-1 rounded-lg text-xs font-bold cursor-pointer"
+              >
+                Tutup [×]
+              </button>
+            </div>
+            <div className="p-4 flex justify-center bg-slate-950">
+              <img 
+                src={modalImage.url} 
+                alt={modalImage.title} 
+                className="max-h-[70vh] object-contain rounded-lg"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

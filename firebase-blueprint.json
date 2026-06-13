@@ -1,0 +1,107 @@
+{
+  "entities": {
+    "MasterKPM": {
+      "title": "MasterKPM",
+      "description": "Keluarga Penerima Manfaat (KPM) PKH data",
+      "type": "object",
+      "properties": {
+        "KPMID": { "type": "string", "description": "Unique identifier for the KPM" },
+        "NomorKK": { "type": "string", "description": "16-digit Family Card Number" },
+        "NamaKepalaKeluarga": { "type": "string", "description": "Head of household name" },
+        "Alamat": { "type": "string", "description": "Address" },
+        "Desa": { "type": "string", "description": "Village name" },
+        "Kecamatan": { "type": "string", "description": "Subdistrict name" },
+        "Kabupaten": { "type": "string", "description": "District or regency name" },
+        "JumlahIbuHamil": { "type": "integer", "description": "Number of pregnant women members" },
+        "JumlahBalita": { "type": "integer", "description": "Number of toddler members" },
+        "JumlahLansia": { "type": "integer", "description": "Number of elderly members" },
+        "JumlahDisabilitas": { "type": "integer", "description": "Number of disabled members" },
+        "TotalAgregatKomponen": { "type": "integer", "description": "Total health target members count" },
+        "StatusKPM": { "type": "string", "enum": ["Aktif", "Tidak Aktif"], "description": "KPM status" },
+        "NamaPendamping": { "type": "string", "description": "Companion/assistance worker name assigned to KPM" }
+      },
+      "required": ["KPMID", "NomorKK", "NamaKepalaKeluarga", "Alamat", "Desa", "Kecamatan", "Kabupaten", "StatusKPM", "NamaPendamping"]
+    },
+    "VerifikasiPKH": {
+      "title": "VerifikasiPKH",
+      "description": "PKH Health Verification Report submissions",
+      "type": "object",
+      "properties": {
+        "VerifikasiID": { "type": "string" },
+        "KPMID": { "type": "string" },
+        "NomorKK": { "type": "string" },
+        "JenisPeriode": { "type": "string", "enum": ["Bulanan", "Triwulanan"] },
+        "BulanPelaporan": { "type": "string" },
+        "TahunPelaporan": { "type": "integer" },
+        "TanggalEntry": { "type": "string", "format": "date" },
+        "Catatan": { "type": "string" },
+        "NomorLaporan": { "type": "string" },
+        "Status": { "type": "string", "enum": ["Tersubmit", "Tervalidasi", "Ditolak"] },
+        "CreatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["VerifikasiID", "KPMID", "NomorKK", "JenisPeriode", "BulanPelaporan", "TahunPelaporan", "TanggalEntry", "Catatan", "NomorLaporan", "Status", "CreatedAt"]
+    },
+    "DetailKomponenVerifikasi": {
+      "title": "DetailKomponenVerifikasi",
+      "description": "Detailed health logs for individual target members inside a verification report",
+      "type": "object",
+      "properties": {
+        "DetailID": { "type": "string" },
+        "VerifikasiID": { "type": "string" },
+        "NamaKomponenPKH": { "type": "string" },
+        "NomorResi": { "type": "string" },
+        "JenisKomponen": { "type": "string", "enum": ["Ibu Hamil", "Balita", "Lansia", "Disabilitas"] },
+        "NamaAnggota": { "type": "string" }
+      },
+      "required": ["DetailID", "VerifikasiID", "NamaKomponenPKH", "NomorResi", "JenisKomponen"]
+    },
+    "DokumenVerifikasi": {
+      "title": "DokumenVerifikasi",
+      "description": "Scanned documents and files linked with a verification submission",
+      "type": "object",
+      "properties": {
+        "DokumenID": { "type": "string" },
+        "VerifikasiID": { "type": "string" },
+        "JenisDokumen": { "type": "string", "enum": ["Foto Kegiatan", "Foto Form Verifikasi"] },
+        "NamaFile": { "type": "string" },
+        "FileURL": { "type": "string" },
+        "UploadDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["DokumenID", "VerifikasiID", "JenisDokumen", "NamaFile", "FileURL", "UploadDate"]
+    }
+  },
+  "firestore": {
+    "/kpm/{kpmId}": {
+      "schema": "MasterKPM",
+      "description": "Collection storing KPM families information"
+    },
+    "/demo_kpm/{kpmId}": {
+      "schema": "MasterKPM",
+      "description": "Collection storing KPM families information in Demo Mode"
+    },
+    "/verifikasi/{verifikasiId}": {
+      "schema": "VerifikasiPKH",
+      "description": "Verification submissions"
+    },
+    "/demo_verifikasi/{verifikasiId}": {
+      "schema": "VerifikasiPKH",
+      "description": "Verification submissions in Demo Mode"
+    },
+    "/verifikasi/{verifikasiId}/details/{detailId}": {
+      "schema": "DetailKomponenVerifikasi",
+      "description": "Inner component targets details for a verification report"
+    },
+    "/demo_verifikasi/{verifikasiId}/details/{detailId}": {
+      "schema": "DetailKomponenVerifikasi",
+      "description": "Inner component targets details for a verification report in Demo Mode"
+    },
+    "/verifikasi/{verifikasiId}/dokumen/{dokumenId}": {
+      "schema": "DokumenVerifikasi",
+      "description": "Uploaded or generated evidence photos stored on Google Drive"
+    },
+    "/demo_verifikasi/{verifikasiId}/dokumen/{dokumenId}": {
+      "schema": "DokumenVerifikasi",
+      "description": "Uploaded or generated evidence photos stored on Google Drive in Demo Mode"
+    }
+  }
+}

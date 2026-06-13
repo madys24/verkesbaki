@@ -1,0 +1,181 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Catch-all safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Identifiers and Session Checks
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'androsendy@gmail.com' || 
+        request.auth.token.email == 'admin@pkh.go.id'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // -----------------------------------------------------------------
+    // MasterKPM Validation Helper
+    // -----------------------------------------------------------------
+    function isValidMasterKPM(data) {
+      return data.KPMID is string && data.KPMID.size() <= 128
+          && data.NomorKK is string && data.NomorKK.size() <= 16
+          && data.NamaKepalaKeluarga is string && data.NamaKepalaKeluarga.size() <= 200
+          && data.Alamat is string && data.Alamat.size() <= 500
+          && data.Desa is string && data.Desa.size() <= 150
+          && data.Kecamatan is string && data.Kecamatan.size() <= 150
+          && data.Kabupaten is string && data.Kabupaten.size() <= 150
+          && (!('JumlahIbuHamil' in data) || data.JumlahIbuHamil is int)
+          && (!('JumlahBalita' in data) || data.JumlahBalita is int)
+          && (!('JumlahLansia' in data) || data.JumlahLansia is int)
+          && (!('JumlahDisabilitas' in data) || data.JumlahDisabilitas is int)
+          && (!('TotalAgregatKomponen' in data) || data.TotalAgregatKomponen is int)
+          && data.StatusKPM is string && (data.StatusKPM == 'Aktif' || data.StatusKPM == 'Tidak Aktif')
+          && (!('NamaPendamping' in data) || (data.NamaPendamping is string && data.NamaPendamping.size() <= 200));
+    }
+
+    // -----------------------------------------------------------------
+    // VerifikasiPKH Validation Helper
+    // -----------------------------------------------------------------
+    function isValidVerifikasiPKH(data) {
+      return data.VerifikasiID is string && data.VerifikasiID.size() <= 128
+          && data.KPMID is string && data.KPMID.size() <= 128
+          && data.NomorKK is string && data.NomorKK.size() <= 16
+          && data.JenisPeriode is string && (data.JenisPeriode == 'Bulanan' || data.JenisPeriode == 'Triwulanan')
+          && data.BulanPelaporan is string && data.BulanPelaporan.size() <= 50
+          && data.TahunPelaporan is int
+          && data.TanggalEntry is string && data.TanggalEntry.size() <= 50
+          && data.Catatan is string && data.Catatan.size() <= 1000
+          && data.NomorLaporan is string && data.NomorLaporan.size() <= 100
+          && data.Status is string && (data.Status == 'Tersubmit' || data.Status == 'Tervalidasi' || data.Status == 'Ditolak')
+          && data.CreatedAt is string && data.CreatedAt.size() <= 150;
+    }
+
+    // -----------------------------------------------------------------
+    // DetailKomponenVerifikasi Validation Helper
+    // -----------------------------------------------------------------
+    function isValidDetailKomponen(data) {
+      return data.DetailID is string && data.DetailID.size() <= 128
+          && data.VerifikasiID is string && data.VerifikasiID.size() <= 128
+          && data.NamaKomponenPKH is string && data.NamaKomponenPKH.size() <= 250
+          && data.NomorResi is string && data.NomorResi.size() <= 100
+          && data.JenisKomponen is string && (data.JenisKomponen == 'Ibu Hamil' || data.JenisKomponen == 'Balita' || data.JenisKomponen == 'Lansia' || data.JenisKomponen == 'Disabilitas')
+          && (!('NamaAnggota' in data) || (data.NamaAnggota is string && data.NamaAnggota.size() <= 250));
+    }
+
+    // -----------------------------------------------------------------
+    // DokumenVerifikasi Validation Helper
+    // -----------------------------------------------------------------
+    function isValidDokumen(data) {
+      return data.DokumenID is string && data.DokumenID.size() <= 128
+          && data.VerifikasiID is string && data.VerifikasiID.size() <= 128
+          && data.JenisDokumen is string && (data.JenisDokumen == 'Foto Kegiatan' || data.JenisDokumen == 'Foto Form Verifikasi')
+          && data.NamaFile is string && data.NamaFile.size() <= 250
+          && data.FileURL is string && data.FileURL.size() <= 1000
+          && data.UploadDate is string && data.UploadDate.size() <= 150;
+    }
+
+    // ==========================================
+    // Master KPM Rules
+    // ==========================================
+    match /kpm/{kpmId} {
+      // Allow public get so KK search works without oauth popup barriers, while listing all remains restricted
+      allow get: if isValidId(kpmId);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(kpmId) && isValidMasterKPM(incoming());
+      allow update: if isSignedIn() && isValidId(kpmId) && isValidMasterKPM(incoming());
+      allow delete: if isAdmin() && isValidId(kpmId);
+    }
+
+    // ==========================================
+    // Demo Master KPM Rules (Open Sandbox)
+    // ==========================================
+    match /demo_kpm/{kpmId} {
+      allow read: if true;
+      allow create, update: if isValidId(kpmId) && isValidMasterKPM(incoming());
+      allow delete: if true;
+    }
+
+    // ==========================================
+    // Verification Reports Rules
+    // ==========================================
+    match /verifikasi/{verifikasiId} {
+      // Allow public read so history can be fetched, while write is secure
+      allow read: if true;
+      allow create: if isValidId(verifikasiId) && isValidVerifikasiPKH(incoming());
+      allow update: if isValidId(verifikasiId) && isValidVerifikasiPKH(incoming()) && (
+        isAdmin() ||
+        // Standard user or offline client can transition Status to 'Tersubmit' and not modify other historical fields if not admin
+        (incoming().diff(existing()).affectedKeys().hasOnly(['Status']))
+      );
+      allow delete: if isAdmin() && isValidId(verifikasiId);
+    }
+
+    // ==========================================
+    // Demo Verification Reports Rules (Open Sandbox)
+    // ==========================================
+    match /demo_verifikasi/{verifikasiId} {
+      allow read: if true;
+      allow create, update: if isValidId(verifikasiId) && isValidVerifikasiPKH(incoming());
+      allow delete: if true;
+    }
+
+    // ==========================================
+    // Nested details subcollection
+    // ==========================================
+    match /verifikasi/{verifikasiId}/details/{detailId} {
+      allow read: if true;
+      allow create: if isValidId(verifikasiId) && isValidId(detailId) && isValidDetailKomponen(incoming());
+      allow update: if isSignedIn() && isValidId(verifikasiId) && isValidId(detailId) && isValidDetailKomponen(incoming());
+      allow delete: if isSignedIn() && isValidId(verifikasiId) && isValidId(detailId);
+    }
+
+    // ==========================================
+    // Demo Nested details subcollection (Open Sandbox)
+    // ==========================================
+    match /demo_verifikasi/{verifikasiId}/details/{detailId} {
+      allow read: if true;
+      allow create, update: if isValidId(verifikasiId) && isValidId(detailId) && isValidDetailKomponen(incoming());
+      allow delete: if true;
+    }
+
+    // ==========================================
+    // Evidence Documents Subcollection
+    // ==========================================
+    match /verifikasi/{verifikasiId}/dokumen/{dokumenId} {
+      allow read: if true;
+      allow create: if isValidId(verifikasiId) && isValidId(dokumenId) && isValidDokumen(incoming());
+      allow update: if isSignedIn() && isValidId(verifikasiId) && isValidId(dokumenId) && isValidDokumen(incoming());
+      allow delete: if isSignedIn() && isValidId(verifikasiId) && isValidId(dokumenId);
+    }
+
+    // ==========================================
+    // Demo Evidence Documents Subcollection (Open Sandbox)
+    // ==========================================
+    match /demo_verifikasi/{verifikasiId}/dokumen/{dokumenId} {
+      allow read: if true;
+      allow create, update: if isValidId(verifikasiId) && isValidId(dokumenId) && isValidDokumen(incoming());
+      allow delete: if true;
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Aplikasi Verifikasi Kesehatan Mandiri PKH",
+  "description": "Aplikasi mandiri Keluarga Penerima Manfaat (KPM) PKH untuk verifikasi dan pelaporan data komponen kesehatan berdasarkan Nomor KK.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
