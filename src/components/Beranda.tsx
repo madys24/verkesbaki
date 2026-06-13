@@ -104,7 +104,7 @@ export default function Beranda({ onStartVerification, onGoToRiwayat, onGoToAdmi
         <div className="max-w-2xl space-y-6 relative z-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/20 border border-teal-400/30 text-teal-300 text-sm font-medium">
             <ShieldCheck className="w-4 h-4" />
-            <span>Kementerian Sosial RI – Program Keluarga Harapan</span>
+            <span>Pendamping Baki – Program Keluarga Harapan</span>
           </div>
 
           <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight leading-tight">
@@ -140,7 +140,7 @@ export default function Beranda({ onStartVerification, onGoToRiwayat, onGoToAdmi
       <div id="notice-kk" className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 shadow-sm leading-relaxed">
         <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
         <p className="text-sm">
-          <strong>Perhatian:</strong> Pastikan Nomor KK Anda terdaftar di <strong>Master Data KPM Pendamping Desa</strong>. Jika nomor KK tidak ditemukan, silakan hubungi Pendamping PKH setempat untuk sinkronisasi data.
+          <strong>Perhatian:</strong> Pastikan Nomor KK Anda terdaftar di <strong>Master Data KPM</strong>. Jika nomor KK tidak ditemukan, silakan hubungi Pendamping PKH setempat untuk sinkronisasi data.
         </p>
       </div>
 

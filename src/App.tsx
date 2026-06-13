@@ -197,7 +197,7 @@ export default function App() {
                   </span>
                 )}
               </div>
-              <span className="text-[10px] text-slate-400 font-bold block mt-1 tracking-wider uppercase">Kementerian Sosial RI</span>
+              <span className="text-[10px] text-slate-400 font-bold block mt-1 tracking-wider uppercase">Kecamatan Baki</span>
             </div>
           </div>
 
@@ -431,7 +431,7 @@ export default function App() {
               </div>
             )}
             {user && <span className="text-slate-300">|</span>}
-            <span>Sesuai Surat Edaran Kemensos RI © 2026</span>
+            <span>Pendamping Kecamatan Baki © 2026</span>
           </div>
         </div>
       </footer>

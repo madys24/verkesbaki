@@ -884,7 +884,7 @@ export default function DashboardAdmin({
           <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-white/15">
             <Lock className="w-6 h-6 text-indigo-300" />
           </div>
-          <h2 id="login-title" className="text-lg font-bold tracking-tight">Kementerian Sosial RI</h2>
+          <h2 id="login-title" className="text-lg font-bold tracking-tight">Pendamping PKH Baki</h2>
           <p className="text-xs text-indigo-200/90 max-w-xs mx-auto">Portal Admin & Supervisor Verifikasi Keluarga Penerima Manfaat (KPM) PKH</p>
         </div>
 
@@ -2654,7 +2654,7 @@ export default function DashboardAdmin({
                     <span>Informasi Pelaporan Kecamatan</span>
                   </h4>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Sistem evaluasi pelaporan berjalan terpusat untuk lingkup <strong>Kecamatan terpilih</strong>. Seluruh proses pengawasan oleh Pendamping di tingkat kelurahan/desa dikonsolidasikan langsung guna mempercepat monitoring program jaminan sosial Keluarga Harapan Kemensos RI.
+                    Sistem evaluasi pelaporan berjalan terpusat untuk lingkup <strong>Kecamatan terpilih</strong>. Seluruh proses pengawasan oleh Pendamping di tingkat kelurahan/desa dikonsolidasikan langsung guna mempercepat monitoring program jaminan sosial Keluarga Harapan.
                   </p>
                   
                   <div className="p-4 rounded-xl bg-teal-50 border border-teal-200 text-teal-950 text-xs leading-relaxed space-y-1.5">
@@ -2663,7 +2663,7 @@ export default function DashboardAdmin({
                       Prinsip Konsistensi Data Wilayah:
                     </p>
                     <p>
-                      Kabupaten pelaporan default terkunci pada <strong>Kabupaten Sukoharjo, Provinsi Jawa Tengah</strong>. Seluruh data kelurahan merujuk pada cakupan wilayah pendamping Kemensos kelolaan operator.
+                      Kabupaten pelaporan default terkunci pada <strong>Kabupaten Sukoharjo, Provinsi Jawa Tengah</strong>. Seluruh data kelurahan merujuk pada cakupan wilayah pendamping kelolaan operator.
                     </p>
                   </div>
                 </div>

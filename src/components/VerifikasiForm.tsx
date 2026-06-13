@@ -457,7 +457,7 @@ export default function VerifikasiForm({ onSuccess, onCancel, prepopulatedKK = '
               <span className="text-3xl">🔍</span>
               <h3 className="text-lg font-bold text-slate-800">Cari Nomor KK Terdaftar</h3>
               <p className="text-xs text-slate-500">
-                Data divalidasi langsung terhadap data Kementerian Sosial yang diinput oleh Pendamping PKH.
+                Data divalidasi langsung terhadap Master Data KPM yang diinput oleh Pendamping PKH.
               </p>
             </div>
 

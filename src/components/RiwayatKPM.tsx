@@ -459,7 +459,7 @@ export default function RiwayatKPM({ initialKK = '', onGoToWizard, isProduction 
               />
             </div>
             <div className="p-3 bg-slate-50 text-center text-[10px] text-slate-400 italic">
-              Dokumen validasi resmi Kementerian Sosial Republik Indonesia.
+              Dokumen validasi resmi Pendamping PKH Kecamatan Baki.
             </div>
           </div>
         </div>
