@@ -461,40 +461,102 @@ export default function DashboardAdmin({
         const text = e.target?.result as string;
         let importedList: Partial<MasterKPM>[] = [];
 
+        // Helper to parse a CSV line properly respecting potential double-quoted cells
+        const parseCsvLine = (line: string, delim: string): string[] => {
+          const values: string[] = [];
+          let curr = '';
+          let quotes = false;
+          for (let idx = 0; idx < line.length; idx++) {
+            const ch = line[idx];
+            if (ch === '"') {
+              quotes = !quotes;
+            } else if (ch === delim && !quotes) {
+              values.push(curr.trim());
+              curr = '';
+            } else {
+              curr += ch;
+            }
+          }
+          values.push(curr.trim());
+          return values.map(v => v.replace(/^"|"$/g, '').trim());
+        };
+
+        // Helper to unpack nested single-key CSV strings wrapped in objects (highly robust fallback)
+        const unpackSingleKeyCsvObject = (item: any): any => {
+          if (!item || typeof item !== 'object') return item;
+          const keys = Object.keys(item);
+          if (keys.length === 1) {
+            const heading = keys[0];
+            const val = item[heading];
+            if (typeof val === 'string' && (heading.includes(',') || heading.includes(';'))) {
+              const delimiter = heading.includes(';') ? ';' : ',';
+              const headers = heading.split(delimiter).map(h => h.trim());
+              const parsedValues = parseCsvLine(val, delimiter);
+              const unpacked: any = {};
+              headers.forEach((h, i) => {
+                unpacked[h] = parsedValues[i] || '';
+              });
+              return unpacked;
+            }
+          }
+          return item;
+        };
+
+        // Helper to normalize any parsed key names into standard camelCase/PascalCase database columns
+        const normalizeItemKeys = (rawItem: any): Partial<MasterKPM> => {
+          if (!rawItem || typeof rawItem !== 'object') return {};
+          
+          const normalized: any = {};
+          Object.keys(rawItem).forEach(key => {
+            const cleanKey = key.replace(/^"|"$/g, '').trim().replace(/\s+/g, '').replace(/[-_]+/g, '').toLowerCase();
+            const val = String(rawItem[key]).trim();
+
+            if (cleanKey === 'kpmid' || cleanKey === 'id') normalized.KPMID = val;
+            else if (cleanKey === 'nomorkk' || cleanKey === 'kk' || cleanKey === 'nokk') normalized.NomorKK = val;
+            else if (cleanKey === 'namakepalakeluarga' || cleanKey === 'namakk' || cleanKey === 'kepalakeluarga' || cleanKey === 'namakepalakk') normalized.NamaKepalaKeluarga = val;
+            else if (cleanKey === 'alamat') normalized.Alamat = val;
+            else if (cleanKey === 'rt') normalized.RT = val;
+            else if (cleanKey === 'rw') normalized.RW = val;
+            else if (cleanKey === 'desa' || cleanKey === 'kelurahan') normalized.Desa = val;
+            else if (cleanKey === 'kecamatan') normalized.Kecamatan = val;
+            else if (cleanKey === 'kabupaten' || cleanKey === 'kota') normalized.Kabupaten = val;
+            else if (cleanKey === 'jumlahibuhamil' || cleanKey === 'ibuhamil') normalized.JumlahIbuHamil = Number(val) || 0;
+            else if (cleanKey === 'jumlahbalita' || cleanKey === 'balita') normalized.JumlahBalita = Number(val) || 0;
+            else if (cleanKey === 'jumlahlansia' || cleanKey === 'lansia') normalized.JumlahLansia = Number(val) || 0;
+            else if (cleanKey === 'jumlahdisabilitas' || cleanKey === 'disabilitas') normalized.JumlahDisabilitas = Number(val) || 0;
+            else if (cleanKey === 'statuskpm' || cleanKey === 'status') normalized.StatusKPM = val;
+            else if (cleanKey === 'namapendamping' || cleanKey === 'pendamping') normalized.NamaPendamping = val;
+            else {
+              normalized[key] = val;
+            }
+          });
+          return normalized;
+        };
+
         if (file.name.endsWith('.json')) {
-          importedList = JSON.parse(text);
+          const parsed = JSON.parse(text);
+          importedList = Array.isArray(parsed) ? parsed : [parsed];
         } else if (file.name.endsWith('.csv')) {
-          // Parse CSV simply
           const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
           if (lines.length < 2) {
             alert('CSV kosong atau format salah.');
             setImportStatus({ isLoading: false, fileName: '', stage: 'idle', total: 0, current: 0 });
             return;
           }
-          const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+
+          // Detect delimiter automatically: Semicolon is very common in Indonesian/Excel standard outputs
+          const headerLine = lines[0];
+          const commaCount = (headerLine.match(/,/g) || []).length;
+          const semicolonCount = (headerLine.match(/;/g) || []).length;
+          const delimiter = semicolonCount > commaCount ? ';' : ',';
+
+          const headers = headerLine.split(delimiter).map(h => h.replace(/^"|"$/g, '').trim());
           
           for (let i = 1; i < lines.length; i++) {
-            const rowData: string[] = [];
-            let current = '';
-            let inQuotes = false;
-            for (let charIdx = 0; charIdx < lines[i].length; charIdx++) {
-              const char = lines[i][charIdx];
-              if (char === '"') {
-                inQuotes = !inQuotes;
-              } else if (char === ',' && !inQuotes) {
-                rowData.push(current.trim());
-                current = '';
-              } else {
-                current += char;
-              }
-            }
-            rowData.push(current.trim());
-
+            const rowData = parseCsvLine(lines[i], delimiter);
             const item: any = {};
             headers.forEach((header, index) => {
-              let val = rowData[index] || '';
-              val = val.replace(/^"|"$/g, '');
-              item[header] = val;
+              item[header] = rowData[index] || '';
             });
             importedList.push(item);
           }
@@ -515,36 +577,41 @@ export default function DashboardAdmin({
         let count = 0;
 
         for (const item of importedList) {
-          if (!item.NomorKK || !item.NamaKepalaKeluarga) {
-            // Check if the row contains any other values to warrant labeling it skipped
-            if (Object.keys(item).some(k => item[k])) {
+          // 1. Reconstruct nested single-key CSV artifacts
+          const unpackedItem = unpackSingleKeyCsvObject(item);
+          
+          // 2. Normalize and check fields
+          const normItem = normalizeItemKeys(unpackedItem);
+
+          if (!normItem.NomorKK || !normItem.NamaKepalaKeluarga) {
+            if (Object.keys(normItem).some(k => normItem[k])) {
               skippedCount++;
             }
             continue;
           }
 
           // Parse RT/RW from Alamat if not explicitly declared in import file
-          const kpmId = item.KPMID || `KPM-${Date.now()}-${count}`;
-          const isRT = item.RT || extractRTVal(item.Alamat || '');
-          const isRW = item.RW || extractRWVal(item.Alamat || '');
+          const kpmId = normItem.KPMID || `KPM-${Date.now()}-${count}`;
+          const isRT = normItem.RT || extractRTVal(normItem.Alamat || '');
+          const isRW = normItem.RW || extractRWVal(normItem.Alamat || '');
 
           const finalKpm: MasterKPM = {
             KPMID: kpmId,
-            NomorKK: String(item.NomorKK),
-            NamaKepalaKeluarga: String(item.NamaKepalaKeluarga),
-            Alamat: String(item.Alamat || ''),
+            NomorKK: String(normItem.NomorKK),
+            NamaKepalaKeluarga: String(normItem.NamaKepalaKeluarga),
+            Alamat: String(normItem.Alamat || ''),
             RT: String(isRT),
             RW: String(isRW),
-            Desa: String(item.Desa || 'Pabelan'),
-            Kecamatan: String(item.Kecamatan || 'Kartasura'),
-            Kabupaten: String(item.Kabupaten || 'Kabupaten Sukoharjo'),
-            JumlahIbuHamil: Number(item.JumlahIbuHamil) || 0,
-            JumlahBalita: Number(item.JumlahBalita) || 0,
-            JumlahLansia: Number(item.JumlahLansia) || 0,
-            JumlahDisabilitas: Number(item.JumlahDisabilitas) || 0,
-            TotalAgregatKomponen: Number(item.JumlahIbuHamil || 0) + Number(item.JumlahBalita || 0) + Number(item.JumlahLansia || 0) + Number(item.JumlahDisabilitas || 0),
-            StatusKPM: (item.StatusKPM === 'Tidak Aktif' ? 'Tidak Aktif' : 'Aktif'),
-            NamaPendamping: String(item.NamaPendamping || 'Siti Rahmaawati')
+            Desa: String(normItem.Desa || 'Kadilangu'),
+            Kecamatan: String(normItem.Kecamatan || 'Baki'),
+            Kabupaten: String(normItem.Kabupaten || 'Kabupaten Sukoharjo'),
+            JumlahIbuHamil: Number(normItem.JumlahIbuHamil) || 0,
+            JumlahBalita: Number(normItem.JumlahBalita) || 0,
+            JumlahLansia: Number(normItem.JumlahLansia) || 0,
+            JumlahDisabilitas: Number(normItem.JumlahDisabilitas) || 0,
+            TotalAgregatKomponen: Number(normItem.JumlahIbuHamil || 0) + Number(normItem.JumlahBalita || 0) + Number(normItem.JumlahLansia || 0) + Number(normItem.JumlahDisabilitas || 0),
+            StatusKPM: (normItem.StatusKPM === 'Tidak Aktif' ? 'Tidak Aktif' : 'Aktif'),
+            NamaPendamping: String(normItem.NamaPendamping || 'Siti Rahmaawati')
           };
 
           validatedList.push(finalKpm);
