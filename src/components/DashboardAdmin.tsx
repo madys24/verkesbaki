@@ -99,6 +99,21 @@ export default function DashboardAdmin({
     return initialSubTab || 'monitoring';
   });
 
+  // State status progress untuk impor CSV/JSON
+  const [importStatus, setImportStatus] = useState<{
+    isLoading: boolean;
+    fileName: string;
+    stage: 'parsing' | 'uploading' | 'finished' | 'idle';
+    total: number;
+    current: number;
+  }>({
+    isLoading: false,
+    fileName: '',
+    stage: 'idle',
+    total: 0,
+    current: 0
+  });
+
   // Filtering states for Master KPM
   const [kpmSearchQuery, setKpmSearchQuery] = useState('');
   const [kpmStatusFilter, setKpmStatusFilter] = useState<'Semua' | 'Aktif' | 'Tidak Aktif'>('Semua');
@@ -432,6 +447,14 @@ export default function DashboardAdmin({
     const file = event.target.files?.[0];
     if (!file) return;
 
+    setImportStatus({
+      isLoading: true,
+      fileName: file.name,
+      stage: 'parsing',
+      total: 0,
+      current: 0
+    });
+
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
@@ -445,6 +468,7 @@ export default function DashboardAdmin({
           const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
           if (lines.length < 2) {
             alert('CSV kosong atau format salah.');
+            setImportStatus({ isLoading: false, fileName: '', stage: 'idle', total: 0, current: 0 });
             return;
           }
           const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
@@ -476,11 +500,13 @@ export default function DashboardAdmin({
           }
         } else {
           alert('Format berkas tidak didukung. Harap upload .json atau .csv');
+          setImportStatus({ isLoading: false, fileName: '', stage: 'idle', total: 0, current: 0 });
           return;
         }
 
         if (!Array.isArray(importedList)) {
           alert('Format data salah. Harus berupa list/array.');
+          setImportStatus({ isLoading: false, fileName: '', stage: 'idle', total: 0, current: 0 });
           return;
         }
 
@@ -527,10 +553,29 @@ export default function DashboardAdmin({
 
         if (validatedList.length === 0) {
           alert('Tidak ada data KPM yang valid ditemukan untuk diimpor. Pastikan kolom "NomorKK" dan "NamaKepalaKeluarga" terisi.');
+          setImportStatus({ isLoading: false, fileName: '', stage: 'idle', total: 0, current: 0 });
           return;
         }
 
-        const importedCount = await DBService.batchAddMasterKPM(validatedList);
+        setImportStatus(prev => ({
+          ...prev,
+          stage: 'uploading',
+          total: validatedList.length,
+          current: 0
+        }));
+
+        const importedCount = await DBService.batchAddMasterKPM(validatedList, (current, total) => {
+          setImportStatus(prev => ({
+            ...prev,
+            current,
+            total
+          }));
+        });
+
+        setImportStatus(prev => ({
+          ...prev,
+          stage: 'finished'
+        }));
 
         let msg = `Selesai! Berhasil mengimpor ${importedCount} KPM baru ke database secara instan 🚀`;
         if (skippedCount > 0) {
@@ -540,6 +585,14 @@ export default function DashboardAdmin({
         fetchDB();
       } catch (err) {
         alert('Gagal mengimpor berkas: ' + (err instanceof Error ? err.message : String(err)));
+      } finally {
+        setImportStatus({
+          isLoading: false,
+          fileName: '',
+          stage: 'idle',
+          total: 0,
+          current: 0
+        });
       }
     };
     reader.readAsText(file);
@@ -932,6 +985,58 @@ export default function DashboardAdmin({
   return (
     <div className="bg-white rounded-xl border border-slate-200/90 shadow-sm overflow-hidden min-h-[500px]">
       
+      {/* Visual Import Progress Overlay */}
+      {importStatus.isLoading && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-100 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-blue-50 text-blue-600 rounded-xl animate-pulse">
+                <Upload className="w-5 h-5 text-blue-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-slate-900 text-sm truncate">Mengimpor Keluarga KPM</h3>
+                <p className="text-[11px] text-slate-400 font-mono truncate">{importStatus.fileName}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3.5">
+              <div className="flex justify-between items-center text-xs text-slate-600 font-medium">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping"></span>
+                  {importStatus.stage === 'parsing' ? 'Membaca data berkas...' : 'Mengunggah ke database Firestore...'}
+                </span>
+                <span className="font-mono text-slate-600 font-semibold bg-slate-100 px-2 py-0.5 rounded text-[10px]">
+                  {importStatus.stage === 'uploading' 
+                    ? `${importStatus.current} / ${importStatus.total} KPM` 
+                    : 'Memuat'}
+                </span>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                <div 
+                  className="bg-blue-600 h-full rounded-full transition-all duration-300 ease-out"
+                  style={{ 
+                    width: importStatus.stage === 'parsing' 
+                      ? '25%' 
+                      : `${Math.round((importStatus.current / (importStatus.total || 1)) * 100)}%` 
+                  }}
+                />
+              </div>
+
+              <div className="flex justify-between items-center text-[11px] text-slate-400">
+                <span>Harap tidak menutup halaman ini</span>
+                {importStatus.stage === 'uploading' && (
+                  <span className="font-bold font-mono text-blue-600 animate-pulse bg-blue-50 px-1.5 py-0.5 rounded">
+                    {Math.round((importStatus.current / (importStatus.total || 1)) * 100)}%
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Admin Title Nav */}
       <div className="bg-blue-900 px-6 py-5 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="space-y-1">

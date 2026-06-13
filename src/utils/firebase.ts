@@ -3,9 +3,21 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User,
 import { getFirestore, doc, getDocFromServer, collection, getDocs, addDoc, setDoc } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Initialize Firebase App
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+// Initialize Firebase App config with environment variable fallbacks
+// This allows developers to pass configuration securely via environment variables
+// on platforms like GitHub Actions or production systems without hardcoding secret keys in files.
+const resolvedFirebaseConfig = {
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
+  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId
+};
+
+const app = initializeApp(resolvedFirebaseConfig);
+export const db = getFirestore(app);
 export const auth = getAuth(app);
 
 // Enable persistence so auth state persists across reloads

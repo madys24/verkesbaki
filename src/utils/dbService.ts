@@ -474,11 +474,12 @@ export const DBService = {
   /**
    * Adds multiple MasterKPM records using Firestore writeBatch (chunks of 500)
    * Highly optimized to perform bulk insert very fast in few network roundtrips.
+   * Supports an optional progress callback for reporting import progress.
    */
-  async batchAddMasterKPM(kpms: MasterKPM[]): Promise<number> {
+  async batchAddMasterKPM(kpms: MasterKPM[], onProgress?: (current: number, total: number) => void): Promise<number> {
     try {
       let dbWrites = 0;
-      const CHUNK_SIZE = 500;
+      const CHUNK_SIZE = 100; // Use a slightly smaller chunk size of 100 for smoother UI progress feedback
       
       // Get the current local mock database list
       const localList = MockDatabase.getMasterKPM();
@@ -499,6 +500,10 @@ export const DBService = {
         });
         
         await batch.commit();
+        
+        if (onProgress) {
+          onProgress(dbWrites, kpms.length);
+        }
       }
 
       // Merge newly added items with local database, overwriting if duplicate ID
