@@ -484,9 +484,18 @@ export default function DashboardAdmin({
           return;
         }
 
+        const validatedList: MasterKPM[] = [];
+        let skippedCount = 0;
         let count = 0;
+
         for (const item of importedList) {
-          if (!item.NomorKK || !item.NamaKepalaKeluarga) continue;
+          if (!item.NomorKK || !item.NamaKepalaKeluarga) {
+            // Check if the row contains any other values to warrant labeling it skipped
+            if (Object.keys(item).some(k => item[k])) {
+              skippedCount++;
+            }
+            continue;
+          }
 
           // Parse RT/RW from Alamat if not explicitly declared in import file
           const kpmId = item.KPMID || `KPM-${Date.now()}-${count}`;
@@ -512,11 +521,22 @@ export default function DashboardAdmin({
             NamaPendamping: String(item.NamaPendamping || 'Siti Rahmaawati')
           };
 
-          await DBService.addMasterKPM(finalKpm);
+          validatedList.push(finalKpm);
           count++;
         }
 
-        alert(`Selesai! Berhasil mengimpor ${count} KPM baru ke database.`);
+        if (validatedList.length === 0) {
+          alert('Tidak ada data KPM yang valid ditemukan untuk diimpor. Pastikan kolom "NomorKK" dan "NamaKepalaKeluarga" terisi.');
+          return;
+        }
+
+        const importedCount = await DBService.batchAddMasterKPM(validatedList);
+
+        let msg = `Selesai! Berhasil mengimpor ${importedCount} KPM baru ke database secara instan 🚀`;
+        if (skippedCount > 0) {
+          msg += `\n\nCatatan: Melewati ${skippedCount} baris data karena tidak memiliki kolom Nomor KK atau Nama Kepala Keluarga.`;
+        }
+        alert(msg);
         fetchDB();
       } catch (err) {
         alert('Gagal mengimpor berkas: ' + (err instanceof Error ? err.message : String(err)));

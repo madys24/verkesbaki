@@ -472,6 +472,56 @@ export const DBService = {
   },
 
   /**
+   * Adds multiple MasterKPM records using Firestore writeBatch (chunks of 500)
+   * Highly optimized to perform bulk insert very fast in few network roundtrips.
+   */
+  async batchAddMasterKPM(kpms: MasterKPM[]): Promise<number> {
+    try {
+      let dbWrites = 0;
+      const CHUNK_SIZE = 500;
+      
+      // Get the current local mock database list
+      const localList = MockDatabase.getMasterKPM();
+      const existingIds = new Set(localList.map(item => item.KPMID));
+      const newlyAddedKpms: MasterKPM[] = [];
+
+      for (let i = 0; i < kpms.length; i += CHUNK_SIZE) {
+        const chunk = kpms.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        
+        chunk.forEach((kpm) => {
+          const docRef = doc(db, getKpmColName(), kpm.KPMID);
+          batch.set(docRef, kpm);
+          
+          // Stage for local database update
+          newlyAddedKpms.push(kpm);
+          dbWrites++;
+        });
+        
+        await batch.commit();
+      }
+
+      // Merge newly added items with local database, overwriting if duplicate ID
+      const updatedLocalList = [...localList];
+      newlyAddedKpms.forEach(newKpm => {
+        const idx = updatedLocalList.findIndex(x => x.KPMID === newKpm.KPMID);
+        if (idx !== -1) {
+          updatedLocalList[idx] = newKpm;
+        } else {
+          updatedLocalList.push(newKpm);
+        }
+      });
+      MockDatabase.saveMasterKPM(updatedLocalList);
+
+      return dbWrites;
+    } catch (err) {
+      console.error("Gagal melakukan batch import KPM ke Firestore:", err);
+      handleFirestoreError(err, OperationType.WRITE, getKpmColName());
+      throw err;
+    }
+  },
+
+  /**
    * Updates an existing MasterKPM record in Firestore (and mirrors to Mockdb)
    */
   async updateMasterKPM(kpm: MasterKPM): Promise<void> {
