@@ -526,6 +526,20 @@ export default function DashboardAdmin({
     event.target.value = '';
   };
 
+  // CLEAR ALL MASTER KPM
+  const handleClearMasterKPM = async () => {
+    if (confirm('Apakah Anda yakin ingin menghapus SELURUH data keluarga (KPM) dari master database? Seluruh data KPM master akan dibersihkan, dan sistem tidak akan memaksa memuat data demo lagi.')) {
+      try {
+        MockDatabase.saveMasterKPM([]);
+        await DBService.clearAllKPM();
+        alert('Sukses! Seluruh data master KPM berhasil dikosongkan.');
+        fetchDB();
+      } catch (err) {
+        alert('Gagal mengosongkan master data KPM: ' + (err instanceof Error ? err.message : String(err)));
+      }
+    }
+  };
+
   // Safe file downloader
   const handleDownloadFile = async (fileUrl: string, originalName: string) => {
     try {
@@ -1938,6 +1952,16 @@ export default function DashboardAdmin({
                 >
                   <Download className="w-4 h-4 text-emerald-600" />
                   <span>Ekspor CSV (Excel)</span>
+                </button>
+
+                {/* Kosongkan KPM Button */}
+                <button
+                  onClick={handleClearMasterKPM}
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-700 border border-rose-200 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                  title="Hapus seluruh keluarga KPM dari database untuk memulai database kosong"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-600" />
+                  <span>Kosongkan Master KPM 🗑️</span>
                 </button>
               </div>
             </div>

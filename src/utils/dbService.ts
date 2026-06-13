@@ -1,5 +1,5 @@
 import { db, getOrCreateDriveFolder, uploadImageToDrive, getAccessToken, auth } from './firebase';
-import { collection, getDocs, doc, setDoc, query, orderBy, limit, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, query, orderBy, limit, writeBatch, getDoc } from 'firebase/firestore';
 import { MasterKPM, VerifikasiPKH, DetailKomponenVerifikasi, DokumenVerifikasi } from '../types';
 import { MockDatabase } from '../data/mockDb';
 
@@ -87,7 +87,25 @@ export const DBService = {
         throw e;
       }
       
-      if (snapshot.empty && !masterKpmSeeded) {
+      // Determine if database was previously seeded/initialized, avoiding force seed of empty master databases.
+      const seedingDocRef = doc(db, 'metadata', 'seeding_status_' + getKpmColName());
+      let seededStatus = false;
+      try {
+        const seedingDoc = await getDoc(seedingDocRef);
+        if (seedingDoc.exists()) {
+          const data = seedingDoc.data();
+          seededStatus = data && data.seeded === true;
+        }
+      } catch (e) {
+        console.warn("Could not check Firestore seeding status, fallback to localStorage:", e);
+      }
+
+      const localSeeded = localStorage.getItem('pkh_seeded_' + getKpmColName()) === 'true';
+      if (localSeeded) {
+        seededStatus = true;
+      }
+
+      if (snapshot.empty && !masterKpmSeeded && !seededStatus) {
         console.log("Firestore 'kpm' collection is empty. Seeding INITIAL_MASTER_KPM data...");
         const localKpms = MockDatabase.getMasterKPM();
         
@@ -97,14 +115,24 @@ export const DBService = {
           const docRef = doc(db, getKpmColName(), kpm.KPMID);
           batch.set(docRef, kpm);
         });
+        
+        // Set metadata seeding status in Firestore
+        batch.set(seedingDocRef, { seeded: true, seededAt: new Date().toISOString() });
+
         try {
           await batch.commit();
+          localStorage.setItem('pkh_seeded_' + getKpmColName(), 'true');
         } catch (e) {
           handleFirestoreError(e, OperationType.WRITE, getKpmColName());
           throw e;
         }
         masterKpmSeeded = true;
         return localKpms;
+      }
+
+      if (snapshot.empty && seededStatus) {
+        // Explicitly cleared by user, return empty array instead of seeding demo data
+        return [];
       }
 
       const kpms: MasterKPM[] = [];
@@ -497,5 +525,32 @@ export const DBService = {
       throw err;
     }
     MockDatabase.updateStatus(verifikasiId, status);
+  },
+
+  /**
+   * Clears all KPM records from Firestore and marks seeding as done to prevent automatic seeding of demo data.
+   */
+  async clearAllKPM(): Promise<void> {
+    try {
+      const kpmColRef = collection(db, getKpmColName());
+      const snapshot = await getDocs(kpmColRef);
+      const batch = writeBatch(db);
+      snapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      
+      // Set the seeding status to true so it doesn't seed on next fetch!
+      const seedingDocRef = doc(db, 'metadata', 'seeding_status_' + getKpmColName());
+      batch.set(seedingDocRef, { seeded: true, clearedAt: new Date().toISOString() });
+      
+      await batch.commit();
+      
+      // Also mark as seeded locally
+      localStorage.setItem('pkh_seeded_' + getKpmColName(), 'true');
+    } catch (err) {
+      console.error("Gagal membersihkan Firestore KPM:", err);
+      handleFirestoreError(err, OperationType.DELETE, getKpmColName());
+      throw err;
+    }
   }
 };

@@ -601,12 +601,12 @@ export class MockDatabase {
   }
 
   // Create a new Master KPM as Admin
-  static addMasterKPM(kpm: Omit<MasterKPM, 'KPMID' | 'TotalAgregatKomponen'>): MasterKPM {
+  static addMasterKPM(kpm: Omit<MasterKPM, 'KPMID' | 'TotalAgregatKomponen'> & { KPMID?: string }): MasterKPM {
     const list = this.getMasterKPM();
     const total = Number(kpm.JumlahIbuHamil) + Number(kpm.JumlahBalita) + Number(kpm.JumlahLansia) + Number(kpm.JumlahDisabilitas);
     const newKPM: MasterKPM = {
       ...kpm,
-      KPMID: `KPM-${(list.length + 1).toString().padStart(3, '0')}`,
+      KPMID: kpm.KPMID || `KPM-${(list.length + 1).toString().padStart(3, '0')}`,
       TotalAgregatKomponen: total,
       JumlahIbuHamil: Number(kpm.JumlahIbuHamil),
       JumlahBalita: Number(kpm.JumlahBalita),
