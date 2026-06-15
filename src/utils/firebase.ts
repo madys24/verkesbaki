@@ -13,11 +13,12 @@ const resolvedFirebaseConfig = {
   authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
   storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
   messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
-  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId
+  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId,
+  firestoreDatabaseId: (import.meta as any).env.VITE_FIREBASE_DATABASE_ID || (firebaseConfig as any).firestoreDatabaseId
 };
 
 const app = initializeApp(resolvedFirebaseConfig);
-export const db = getFirestore(app);
+export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 // Enable persistence so auth state persists across reloads

@@ -45,11 +45,11 @@ service cloud.firestore {
           && data.Desa is string && data.Desa.size() <= 150
           && data.Kecamatan is string && data.Kecamatan.size() <= 150
           && data.Kabupaten is string && data.Kabupaten.size() <= 150
-          && (!('JumlahIbuHamil' in data) || data.JumlahIbuHamil is int)
-          && (!('JumlahBalita' in data) || data.JumlahBalita is int)
-          && (!('JumlahLansia' in data) || data.JumlahLansia is int)
-          && (!('JumlahDisabilitas' in data) || data.JumlahDisabilitas is int)
-          && (!('TotalAgregatKomponen' in data) || data.TotalAgregatKomponen is int)
+          && (!('JumlahIbuHamil' in data) || data.JumlahIbuHamil is number)
+          && (!('JumlahBalita' in data) || data.JumlahBalita is number)
+          && (!('JumlahLansia' in data) || data.JumlahLansia is number)
+          && (!('JumlahDisabilitas' in data) || data.JumlahDisabilitas is number)
+          && (!('TotalAgregatKomponen' in data) || data.TotalAgregatKomponen is number)
           && data.StatusKPM is string && (data.StatusKPM == 'Aktif' || data.StatusKPM == 'Tidak Aktif')
           && (!('NamaPendamping' in data) || (data.NamaPendamping is string && data.NamaPendamping.size() <= 200));
     }
@@ -63,7 +63,7 @@ service cloud.firestore {
           && data.NomorKK is string && data.NomorKK.size() <= 16
           && data.JenisPeriode is string && (data.JenisPeriode == 'Bulanan' || data.JenisPeriode == 'Triwulanan')
           && data.BulanPelaporan is string && data.BulanPelaporan.size() <= 50
-          && data.TahunPelaporan is int
+          && data.TahunPelaporan is number
           && data.TanggalEntry is string && data.TanggalEntry.size() <= 50
           && data.Catatan is string && data.Catatan.size() <= 1000
           && data.NomorLaporan is string && data.NomorLaporan.size() <= 100

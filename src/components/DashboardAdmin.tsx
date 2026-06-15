@@ -8,7 +8,7 @@ import {
   BarChart3, Users, CheckSquare, FileText, Ban, CheckCircle2, UserCheck, UserX, AlertCircle,
   TrendingUp, MapPin, Eye, Calendar, Plus, Trash2, Edit2, RotateCcw, Filter, PieChart, Activity,
   Lock, ShieldAlert, Key, LogIn, EyeOff, Sparkles, Globe, Server, Check,
-  Baby, Accessibility, Heart, Download, Upload, LogOut, Search
+  Baby, Accessibility, Heart, Download, Upload, LogOut, Search, ClipboardList
 } from 'lucide-react';
 import { MockDatabase, INDONESIA_REGIONAL } from '../data/mockDb';
 import { MasterKPM, VerifikasiPKH, DetailKomponenVerifikasi, DokumenVerifikasi } from '../types';
@@ -113,6 +113,14 @@ export default function DashboardAdmin({
     total: 0,
     current: 0
   });
+
+  // State untuk Impor via Salin-Tempel Excel (Copy-Paste)
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pastedText, setPastedText] = useState('');
+  const [parsedPreview, setParsedPreview] = useState<MasterKPM[]>([]);
+  const [pasteError, setPasteError] = useState('');
+  const [isImportingPasted, setIsImportingPasted] = useState(false);
+  const [pasteImportTarget, setPasteImportTarget] = useState<'current' | 'offline'>('current');
 
   // Filtering states for Master KPM
   const [kpmSearchQuery, setKpmSearchQuery] = useState('');
@@ -666,6 +674,175 @@ export default function DashboardAdmin({
     event.target.value = '';
   };
 
+  // HANDLERS FOR EXCEL COPY-PASTE DIRECT GRID IMPORTER
+  const handleParsePastedText = (text: string) => {
+    try {
+      if (!text || !text.trim()) {
+        setParsedPreview([]);
+        setPasteError('');
+        return;
+      }
+      
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) {
+        setParsedPreview([]);
+        setPasteError('Data kosong atau tidak valid.');
+        return;
+      }
+
+      const rows = lines.map(line => line.split('\t').map(cell => cell.trim()));
+      const firstRow = rows[0];
+
+      // Detect if first row contains column headers
+      const isHeader = firstRow.some(cell => {
+        const c = cell.toLowerCase();
+        return c.includes('kk') || c.includes('nama') || c.includes('alamat') || c.includes('rt') || c.includes('rw') || c.includes('desa') || c.includes('dusun') || c.includes('pendamping');
+      });
+
+      let headers: string[] = [];
+      let dataRows: string[][] = [];
+
+      if (isHeader) {
+        headers = firstRow;
+        dataRows = rows.slice(1);
+      } else {
+        const colCount = firstRow.length;
+        headers = Array.from({ length: colCount }, (_, i) => `col_${i}`);
+        dataRows = rows;
+      }
+
+      const validatedList: MasterKPM[] = [];
+      let count = 0;
+
+      // Local helper to normalize key names (mirror of normalizePastedKeys but scoped)
+      const localNormalize = (rawItem: any): Partial<MasterKPM> => {
+        if (!rawItem || typeof rawItem !== 'object') return {};
+        const normalized: any = {};
+        Object.keys(rawItem).forEach(key => {
+          const cleanKey = key.replace(/^"|"$/g, '').trim().replace(/\s+/g, '').replace(/[-_]+/g, '').toLowerCase();
+          const val = String(rawItem[key]).trim();
+
+          if (cleanKey === 'kpmid' || cleanKey === 'id') normalized.KPMID = val;
+          else if (cleanKey === 'nomorkk' || cleanKey === 'kk' || cleanKey === 'nokk') normalized.NomorKK = val;
+          else if (cleanKey === 'namakepalakeluarga' || cleanKey === 'namakk' || cleanKey === 'kepalakeluarga' || cleanKey === 'namakepalakk') normalized.NamaKepalaKeluarga = val;
+          else if (cleanKey === 'alamat') normalized.Alamat = val;
+          else if (cleanKey === 'rt') normalized.RT = val;
+          else if (cleanKey === 'rw') normalized.RW = val;
+          else if (cleanKey === 'desa' || cleanKey === 'kelurahan') normalized.Desa = val;
+          else if (cleanKey === 'kecamatan') normalized.Kecamatan = val;
+          else if (cleanKey === 'kabupaten' || cleanKey === 'kota') normalized.Kabupaten = val;
+          else if (cleanKey === 'jumlahibuhamil' || cleanKey === 'ibuhamil') normalized.JumlahIbuHamil = Number(val) || 0;
+          else if (cleanKey === 'jumlahbalita' || cleanKey === 'balita') normalized.JumlahBalita = Number(val) || 0;
+          else if (cleanKey === 'jumlahlansia' || cleanKey === 'lansia') normalized.JumlahLansia = Number(val) || 0;
+          else if (cleanKey === 'jumlahdisabilitas' || cleanKey === 'disabilitas') normalized.JumlahDisabilitas = Number(val) || 0;
+          else if (cleanKey === 'statuskpm' || cleanKey === 'status') normalized.StatusKPM = val;
+          else if (cleanKey === 'namapendamping' || cleanKey === 'pendamping') normalized.NamaPendamping = val;
+          else {
+            normalized[key] = val;
+          }
+        });
+        return normalized;
+      };
+
+      for (const row of dataRows) {
+        const item: any = {};
+        headers.forEach((header, index) => {
+          item[header] = row[index] || '';
+        });
+
+        const normItem = localNormalize(item);
+
+        // Fallback guesser for index-based rows if no header was detected
+        if (!isHeader) {
+          row.forEach((cell) => {
+            if (/^\d{16}$/.test(cell)) {
+              if (!normItem.NomorKK) normItem.NomorKK = cell;
+            } else if (/^[A-Za-z\s'.]{3,50}$/.test(cell) && !cell.toLowerCase().includes('baki') && !cell.toLowerCase().includes('sukoharjo') && !cell.toLowerCase().includes('kadilangu')) {
+              if (!normItem.NamaKepalaKeluarga) normItem.NamaKepalaKeluarga = cell;
+            } else if (cell.toLowerCase().startsWith('rt')) {
+              normItem.RT = cell.replace(/\D/g, '').padStart(2, '0');
+            } else if (cell.toLowerCase().startsWith('rw')) {
+              normItem.RW = cell.replace(/\D/g, '').padStart(2, '0');
+            }
+          });
+        }
+
+        if (!normItem.NomorKK && !normItem.NamaKepalaKeluarga) {
+          continue;
+        }
+
+        const kpmId = normItem.KPMID || `KPM-${Date.now()}-${count}`;
+        const isRT = normItem.RT || extractRTVal(normItem.Alamat || '');
+        const isRW = normItem.RW || extractRWVal(normItem.Alamat || '');
+
+        const finalKpm: MasterKPM = {
+          KPMID: kpmId,
+          NomorKK: String(normItem.NomorKK || `AUTOKK-${Date.now()}-${count}`),
+          NamaKepalaKeluarga: String(normItem.NamaKepalaKeluarga || 'Tanpa Nama'),
+          Alamat: String(normItem.Alamat || ''),
+          RT: String(isRT || '00'),
+          RW: String(isRW || '00'),
+          Desa: String(normItem.Desa || 'Kadilangu'),
+          Kecamatan: String(normItem.Kecamatan || 'Baki'),
+          Kabupaten: String(normItem.Kabupaten || 'Kabupaten Sukoharjo'),
+          JumlahIbuHamil: Number(normItem.JumlahIbuHamil) || 0,
+          JumlahBalita: Number(normItem.JumlahBalita) || 0,
+          JumlahLansia: Number(normItem.JumlahLansia) || 0,
+          JumlahDisabilitas: Number(normItem.JumlahDisabilitas) || 0,
+          TotalAgregatKomponen: Number(normItem.JumlahIbuHamil || 0) + Number(normItem.JumlahBalita || 0) + Number(normItem.JumlahLansia || 0) + Number(normItem.JumlahDisabilitas || 0),
+          StatusKPM: (normItem.StatusKPM === 'Tidak Aktif' ? 'Tidak Aktif' : 'Aktif'),
+          NamaPendamping: String(normItem.NamaPendamping || 'Siti Rahmaawati')
+        };
+
+        validatedList.push(finalKpm);
+        count++;
+      }
+
+      if (validatedList.length === 0) {
+        setParsedPreview([]);
+        setPasteError('Format data salah atau tidak ada baris valid yg terdeteksi. Pastikan mencantumkan Nomor KK dan Nama Kepala Keluarga.');
+      } else {
+        setParsedPreview(validatedList);
+        setPasteError('');
+      }
+    } catch (err) {
+      setParsedPreview([]);
+      setPasteError('Gagal memproses teks: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleExecutePasteImport = async () => {
+    if (parsedPreview.length === 0) return;
+    setIsImportingPasted(true);
+    try {
+      const originalProductionMode = localStorage.getItem('pkh_production_mode');
+      
+      if (pasteImportTarget === 'offline') {
+        localStorage.setItem('pkh_production_mode', 'false');
+      }
+
+      const importedCount = await DBService.batchAddMasterKPM(parsedPreview);
+
+      if (pasteImportTarget === 'offline') {
+        if (originalProductionMode !== null) {
+          localStorage.setItem('pkh_production_mode', originalProductionMode);
+        } else {
+          localStorage.removeItem('pkh_production_mode');
+        }
+      }
+
+      alert(`Sukses! Berhasil mengimpor ${importedCount} KPM baru secara langsung dari Excel 🚀`);
+      setShowPasteModal(false);
+      setPastedText('');
+      setParsedPreview([]);
+      fetchDB();
+    } catch (err) {
+      alert('Gagal mengeksekusi impor data: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsImportingPasted(false);
+    }
+  };
+
   // CLEAR ALL MASTER KPM
   const handleClearMasterKPM = async () => {
     if (confirm('Apakah Anda yakin ingin menghapus SELURUH data keluarga (KPM) dari master database? Seluruh data KPM master akan dibersihkan, dan sistem tidak akan memaksa memuat data demo lagi.')) {
@@ -1098,6 +1275,174 @@ export default function DashboardAdmin({
                     {Math.round((importStatus.current / (importStatus.total || 1)) * 100)}%
                   </span>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Visual Paste Import Modal */}
+      {showPasteModal && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-4xl w-full border border-slate-100 flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📋</span>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm">Impor KPM via Salin-Tempel Excel</h3>
+                  <p className="text-[11px] text-slate-400">Salin baris dan kolom tabel data master KPM di Excel (Ctrl+C), lalu tempel (Ctrl+V) langsung di area bawah.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowPasteModal(false)}
+                className="p-1 px-2.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 font-bold text-xs"
+              >
+                ✕ Tutup
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-4 space-y-4">
+              {/* Clipboard instructions / columns help */}
+              <div className="p-3 bg-blue-50/60 border border-blue-100 text-[11px] text-slate-600 rounded-xl space-y-1">
+                <span className="font-bold text-blue-800 block">💡 Tips Format Kolom di Excel:</span>
+                <p>Aplikasi akan otomatis mapping data Anda. Agar hasil maksimal, pastikan baris pertama Excel Anda memiliki nama kolom seperti:</p>
+                <div className="font-mono text-[10px] bg-white px-2 py-1.5 rounded border border-blue-100/50 leading-relaxed overflow-x-auto whitespace-normal">
+                  Nomor KK • Nama Kepala Keluarga • Alamat • RT • RW • Desa • Kecamatan • Jumlah Ibu Hamil • Jumlah Balita • Jumlah Lansia • Jumlah Disabilitas • Status KPM • Nama Pendamping
+                </div>
+                <p className="text-[10px] text-slate-500 italic mt-1">Sistem juga cerdas mendeteksi baris angka 16-digit sebagai Nomor KK dan teks panjang sebagai Nama jika baris header tidak ditemukan!</p>
+              </div>
+
+              {/* Paste Textarea */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">Tempel (Paste) data Excel Anda di sini:</label>
+                <textarea
+                  value={pastedText}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    setPastedText(text);
+                    handleParsePastedText(text);
+                  }}
+                  placeholder="Tempel data di sini... (Contoh: salin baris tabel Excel lalu tekan Ctrl+V di sini)"
+                  className="w-full h-36 p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] focus:outline-none focus:border-blue-400 focus:bg-white resize-none"
+                />
+              </div>
+
+              {/* Validation / Paste status error feedback */}
+              {pasteError && (
+                <div className="p-3 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+                  <span className="text-sm">⚠️</span>
+                  <span>{pasteError}</span>
+                </div>
+              )}
+
+              {/* Live Preview Table */}
+              {parsedPreview.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Pratinjau Hasil Pembacaan ({parsedPreview.length} Baris Data Ditemukan)
+                    </span>
+                    <button 
+                      onClick={() => { setPastedText(''); setParsedPreview([]); setPasteError(''); }}
+                      className="text-[11px] font-semibold text-rose-600 hover:text-rose-800"
+                    >
+                      Bersihkan
+                    </button>
+                  </div>
+                  <div className="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto text-[11px]">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                          <th className="p-2 w-10 text-center">No</th>
+                          <th className="p-2">Nomor KK</th>
+                          <th className="p-2">Nama Kepala Keluarga</th>
+                          <th className="p-2">Alamat / RT / RW</th>
+                          <th className="p-2">Desa</th>
+                          <th className="p-2 text-center">Komponen</th>
+                          <th className="p-2">Pendamping</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {parsedPreview.map((kpm, idx) => (
+                          <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 text-slate-700">
+                            <td className="p-2 text-center font-mono text-slate-400">{idx + 1}</td>
+                            <td className="p-2 font-mono font-bold text-slate-800">{kpm.NomorKK}</td>
+                            <td className="p-2 font-semibold text-slate-900">{kpm.NamaKepalaKeluarga}</td>
+                            <td className="p-2">{kpm.Alamat} (RT {kpm.RT} / RW {kpm.RW})</td>
+                            <td className="p-2 text-slate-600">{kpm.Desa}</td>
+                            <td className="p-2 text-center bg-emerald-50/40 text-emerald-800 font-bold">
+                              {kpm.JumlahIbuHamil}-{kpm.JumlahBalita}-{kpm.JumlahLansia}-{kpm.JumlahDisabilitas}
+                            </td>
+                            <td className="p-2 text-slate-500">{kpm.NamaPendamping}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Controls */}
+            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3">
+              {/* Target Database Selection */}
+              <div className="flex items-center gap-2.5 text-xs">
+                <span className="text-slate-500 font-semibold">Tujuan Impor:</span>
+                <div className="flex border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                  <button
+                    onClick={() => setPasteImportTarget('current')}
+                    className={`px-3 py-1.5 font-bold transition-all ${
+                      pasteImportTarget === 'current'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Ikut Mode Sistem ({isProduction ? 'Live' : 'Offline'})
+                  </button>
+                  <button
+                    onClick={() => setPasteImportTarget('offline')}
+                    className={`px-3 py-1.5 font-bold transition-all ${
+                      pasteImportTarget === 'offline'
+                        ? 'bg-amber-600 text-white'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Hanya Offline-Demo (Aman & Cepat)
+                  </button>
+                </div>
+              </div>
+
+              {/* Proceed Buttons */}
+              <div className="flex items-center gap-2 self-end w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowPasteModal(false)}
+                  className="flex-1 sm:flex-none px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={parsedPreview.length === 0 || isImportingPasted}
+                  onClick={handleExecutePasteImport}
+                  className={`flex-1 sm:flex-none px-5 py-2 text-xs font-bold text-white rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-sm ${
+                    parsedPreview.length === 0
+                      ? 'bg-slate-300 cursor-not-allowed'
+                      : 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer'
+                  }`}
+                >
+                  {isImportingPasted ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      <span>Sedang Mengimpor...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Mulai Impor {parsedPreview.length} KPM 🚀</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>
@@ -2110,7 +2455,7 @@ export default function DashboardAdmin({
               
               <div className="flex flex-wrap items-center gap-2">
                 {/* Impor Button */}
-                <label className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition-all shadow-sm">
+                <label className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition-all shadow-sm" title="Unggah berkas data master KPM">
                   <Upload className="w-4 h-4" />
                   <span>Impor Berkas (.JSON / .CSV)</span>
                   <input 
@@ -2120,6 +2465,23 @@ export default function DashboardAdmin({
                     className="hidden" 
                   />
                 </label>
+
+                {/* Salin Tempel Excel Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPastedText('');
+                    setParsedPreview([]);
+                    setPasteError('');
+                    setIsImportingPasted(false);
+                    setShowPasteModal(true);
+                  }}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
+                  title="Salin tabel data master KPM langsung dari Excel lalu tempel di sini"
+                >
+                  <ClipboardList className="w-4 h-4" />
+                  <span>Salin-Tempel Excel 📋</span>
+                </button>
 
                 {/* Ekspor JSON Button */}
                 <button
