@@ -2094,14 +2094,7 @@ export default function DashboardAdmin({
                 </p>
               </div>
 
-              <button
-                id="btn-tambah-kpm-baru"
-                onClick={openAddKpmForm}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
-              >
-                <Plus className="w-4 h-4" />
-                Tambah KPM Baru
-              </button>
+
             </div>
 
             {/* Import & Export Operations Panel */}

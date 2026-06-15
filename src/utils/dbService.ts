@@ -496,11 +496,10 @@ export const DBService = {
       });
       MockDatabase.saveMasterKPM(updatedLocalList);
 
-      // Attempt uploading to Firestore in batches, with a fallback timeout to keep UX smooth and non-blocking
-      // if Firestore is offline, rules are slow, or connection is unstable.
+      // Attempt uploading to Firestore in batches cleanly and reliably.
       for (let i = 0; i < kpms.length; i += CHUNK_SIZE) {
         const chunk = kpms.slice(i, i + CHUNK_SIZE);
-         const batch = writeBatch(db);
+        const batch = writeBatch(db);
         
         chunk.forEach((kpm) => {
           const docRef = doc(db, getKpmColName(), kpm.KPMID);
@@ -509,17 +508,11 @@ export const DBService = {
         });
 
         try {
-          // Promise.race to ensure a maximum of 2.0 seconds wait per chunk
-          await Promise.race([
-            batch.commit(),
-            new Promise<void>((_, reject) => 
-              setTimeout(() => reject(new Error('timeout')), 2000)
-            )
-          ]);
+          await batch.commit();
         } catch (commitErr) {
-          console.warn(`Firestore batch commit timed out or failed for chunk starting at ${i}. Continuing in background mode:`, commitErr);
-          // Fallback: We do not fail-throw here so the UI progress remains fluid & finishes successfully
-          // since local storage is already fully updated anyway!
+          console.error(`Firestore batch commit failed for chunk starting at ${i}:`, commitErr);
+          handleFirestoreError(commitErr, OperationType.WRITE, getKpmColName());
+          throw commitErr;
         }
         
         if (onProgress) {

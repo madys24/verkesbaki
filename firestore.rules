@@ -99,9 +99,8 @@ service cloud.firestore {
     // Master KPM Rules
     // ==========================================
     match /kpm/{kpmId} {
-      // Allow public get so KK search works without oauth popup barriers, while listing all remains restricted
-      allow get: if isValidId(kpmId);
-      allow list: if isSignedIn();
+      // Allow public read (get and list) so matching search works without user authentication blockers
+      allow read: if true;
       allow create: if isSignedIn() && isValidId(kpmId) && isValidMasterKPM(incoming());
       allow update: if isSignedIn() && isValidId(kpmId) && isValidMasterKPM(incoming());
       allow delete: if isAdmin() && isValidId(kpmId);
