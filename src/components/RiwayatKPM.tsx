@@ -59,7 +59,7 @@ export default function RiwayatKPM({ initialKK = '', onGoToWizard, isProduction 
 
   useEffect(() => {
     fetchDatabase();
-  }, []);
+  }, [isProduction]);
 
   // Filter & Search Logic
   const handleSearch = (e?: React.FormEvent) => {

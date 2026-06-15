@@ -98,7 +98,7 @@ service cloud.firestore {
     // ==========================================
     // Master KPM Rules
     // ==========================================
-    match /kpm/{kpmId} {
+    match /pkh_master_kpm_live/{kpmId} {
       // Allow public read (get and list) so matching search works without user authentication blockers
       allow read: if true;
       allow create: if isSignedIn() && isValidId(kpmId) && isValidMasterKPM(incoming());
@@ -109,7 +109,7 @@ service cloud.firestore {
     // ==========================================
     // Demo Master KPM Rules (Open Sandbox)
     // ==========================================
-    match /demo_kpm/{kpmId} {
+    match /pkh_master_kpm_demo/{kpmId} {
       allow read: if true;
       allow create, update: if isValidId(kpmId) && isValidMasterKPM(incoming());
       allow delete: if true;
@@ -118,7 +118,7 @@ service cloud.firestore {
     // ==========================================
     // Verification Reports Rules
     // ==========================================
-    match /verifikasi/{verifikasiId} {
+    match /pkh_verifikasi_live/{verifikasiId} {
       // Allow public read so history can be fetched, while write is secure
       allow read: if true;
       allow create: if isValidId(verifikasiId) && isValidVerifikasiPKH(incoming());
@@ -133,7 +133,7 @@ service cloud.firestore {
     // ==========================================
     // Demo Verification Reports Rules (Open Sandbox)
     // ==========================================
-    match /demo_verifikasi/{verifikasiId} {
+    match /pkh_verifikasi_demo/{verifikasiId} {
       allow read: if true;
       allow create, update: if isValidId(verifikasiId) && isValidVerifikasiPKH(incoming());
       allow delete: if true;
@@ -142,7 +142,7 @@ service cloud.firestore {
     // ==========================================
     // Nested details subcollection
     // ==========================================
-    match /verifikasi/{verifikasiId}/details/{detailId} {
+    match /pkh_verifikasi_live/{verifikasiId}/details/{detailId} {
       allow read: if true;
       allow create: if isValidId(verifikasiId) && isValidId(detailId) && isValidDetailKomponen(incoming());
       allow update: if isSignedIn() && isValidId(verifikasiId) && isValidId(detailId) && isValidDetailKomponen(incoming());
@@ -152,7 +152,7 @@ service cloud.firestore {
     // ==========================================
     // Demo Nested details subcollection (Open Sandbox)
     // ==========================================
-    match /demo_verifikasi/{verifikasiId}/details/{detailId} {
+    match /pkh_verifikasi_demo/{verifikasiId}/details/{detailId} {
       allow read: if true;
       allow create, update: if isValidId(verifikasiId) && isValidId(detailId) && isValidDetailKomponen(incoming());
       allow delete: if true;
@@ -161,7 +161,7 @@ service cloud.firestore {
     // ==========================================
     // Evidence Documents Subcollection
     // ==========================================
-    match /verifikasi/{verifikasiId}/dokumen/{dokumenId} {
+    match /pkh_verifikasi_live/{verifikasiId}/dokumen/{dokumenId} {
       allow read: if true;
       allow create: if isValidId(verifikasiId) && isValidId(dokumenId) && isValidDokumen(incoming());
       allow update: if isSignedIn() && isValidId(verifikasiId) && isValidId(dokumenId) && isValidDokumen(incoming());
@@ -171,7 +171,7 @@ service cloud.firestore {
     // ==========================================
     // Demo Evidence Documents Subcollection (Open Sandbox)
     // ==========================================
-    match /demo_verifikasi/{verifikasiId}/dokumen/{dokumenId} {
+    match /pkh_verifikasi_demo/{verifikasiId}/dokumen/{dokumenId} {
       allow read: if true;
       allow create, update: if isValidId(verifikasiId) && isValidId(dokumenId) && isValidDokumen(incoming());
       allow delete: if true;

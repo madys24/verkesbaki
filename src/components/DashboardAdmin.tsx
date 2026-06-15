@@ -272,7 +272,7 @@ export default function DashboardAdmin({
 
   useEffect(() => {
     fetchDB();
-  }, []);
+  }, [isProduction]);
 
   const openAddKpmForm = () => {
     setIsEditingKPM(false);

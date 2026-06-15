@@ -95,7 +95,7 @@ export default function VerifikasiForm({ onSuccess, onCancel, prepopulatedKK = '
       }
     };
     fetchKPMs();
-  }, []);
+  }, [isProduction]);
 
   const initializeMemberForms = () => {
     if (!foundKPM) return;
