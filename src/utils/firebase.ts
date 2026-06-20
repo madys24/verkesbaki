@@ -17,14 +17,29 @@ const resolvedFirebaseConfig = {
   firestoreDatabaseId: (import.meta as any).env.VITE_FIREBASE_DATABASE_ID || (firebaseConfig as any).firestoreDatabaseId
 };
 
-const app = initializeApp(resolvedFirebaseConfig);
-export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
+// Check if Firebase is properly configured
+export const isFirebaseConfigured = () => {
+  return !!(resolvedFirebaseConfig.apiKey && resolvedFirebaseConfig.projectId);
+};
 
-// Enable persistence so auth state persists across reloads
-setPersistence(auth, browserLocalPersistence).catch((err) => {
-  console.error("Auth persistence setup failed:", err);
-});
+export let app: any = null;
+export let db: any = null;
+export let auth: any = null;
+
+if (isFirebaseConfigured()) {
+  try {
+    app = initializeApp(resolvedFirebaseConfig);
+    db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
+    auth = getAuth(app);
+
+    // Enable persistence so auth state persists across reloads
+    setPersistence(auth, browserLocalPersistence).catch((err) => {
+      console.error("Auth persistence setup failed:", err);
+    });
+  } catch (e) {
+    console.error("Failed to initialize Firebase:", e);
+  }
+}
 
 // Configure Google Auth Provider with Google Drive file scope and Google Contacts scope
 export const provider = new GoogleAuthProvider();
@@ -45,6 +60,10 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  if (!auth) {
+    if (onAuthFailure) onAuthFailure();
+    return () => {};
+  }
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
       const activeToken = cachedAccessToken || (() => {
@@ -75,6 +94,9 @@ export const initAuth = (
 
 // Start Google sign-in workflow 
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+  if (!auth) {
+    throw new Error('Firebase belum dikonfigurasi. Silakan jalankan Setup Firebase di menu AI Studio.');
+  }
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, provider);
@@ -102,7 +124,9 @@ export const getAccessToken = async (): Promise<string | null> => {
 
 // Sign out and clear stored token representation
 export const logout = async () => {
-  await auth.signOut();
+  if (auth) {
+    await auth.signOut();
+  }
   cachedAccessToken = null;
   try {
     sessionStorage.removeItem('pkh_google_drive_token');
@@ -220,6 +244,10 @@ export const uploadImageToDrive = async (
  * Validates Firestore database status
  */
 export async function testConnection() {
+  if (!db) {
+    console.warn("Firestore belum dikonfigurasi.");
+    return;
+  }
   try {
     await getDocFromServer(doc(db, 'system', 'connection_probe'));
   } catch (error) {
@@ -229,4 +257,6 @@ export async function testConnection() {
   }
 }
 
-testConnection();
+if (isFirebaseConfigured()) {
+  testConnection();
+}

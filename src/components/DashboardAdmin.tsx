@@ -45,6 +45,7 @@ export default function DashboardAdmin({
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
 
   useEffect(() => {
+    if (!auth) return;
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setFirebaseUser(user);
       if (user) {
@@ -248,7 +249,7 @@ export default function DashboardAdmin({
       setKpmList(kpmData);
     } catch (err) {
       console.warn("Gagal mendapatkan KPM untuk admin portal:", err);
-      setKpmList(MockDatabase.getMasterKPM());
+      setKpmList(isProduction ? [] : MockDatabase.getMasterKPM());
     }
 
     let loadedReports: VerifikasiPKH[] = [];
@@ -258,7 +259,7 @@ export default function DashboardAdmin({
       loadedReports = verifData;
     } catch (err) {
       console.warn("Gagal mendapatkan Verifikasi untuk admin portal:", err);
-      const fallbackVerif = MockDatabase.getVerifikasi();
+      const fallbackVerif = isProduction ? [] : MockDatabase.getVerifikasi();
       setVerifList(fallbackVerif);
       loadedReports = fallbackVerif;
     }
@@ -267,14 +268,14 @@ export default function DashboardAdmin({
       const details = await DBService.getAllDetails(loadedReports);
       setDetailList(details);
     } catch (err) {
-      setDetailList(MockDatabase.getDetailKomponen());
+      setDetailList(isProduction ? [] : MockDatabase.getDetailKomponen());
     }
 
     try {
       const docs = await DBService.getAllDokumen(loadedReports);
       setDokumenList(docs);
     } catch (err) {
-      setDokumenList(MockDatabase.getDokumen());
+      setDokumenList(isProduction ? [] : MockDatabase.getDokumen());
     }
   };
 
@@ -339,6 +340,11 @@ export default function DashboardAdmin({
       return;
     }
 
+    if (isProduction && !firebaseUser) {
+      setKpmFormError('Anda harus login dengan Akun Google terlebih dahulu untuk melakukan operasi penambahan atau perubahan Master KPM di Mode Live / Produksi.');
+      return;
+    }
+
     try {
       if (isEditingKPM && editingKPMItem) {
         await DBService.updateMasterKPM({
@@ -355,6 +361,8 @@ export default function DashboardAdmin({
           JumlahBalita: Number(formBalita),
           JumlahLansia: Number(formLansia),
           JumlahDisabilitas: Number(formDisabilitas),
+          TotalAgregatKomponen: Number(formIbuHamil) + Number(formBalita) + Number(formLansia) + Number(formDisabilitas),
+          Kabupaten: editingKPMItem.Kabupaten || 'Kabupaten Sukoharjo',
           StatusKPM: formStatus
         });
       } else {
@@ -392,6 +400,18 @@ export default function DashboardAdmin({
   };
 
   const handleDeleteKpm = async (id: string) => {
+    if (isProduction) {
+      if (!firebaseUser) {
+        alert("Anda saat ini berada di Mode Live / Produksi tetapi belum masuk (login).\n\nSilakan login menggunakan Google Super Admin terlebih dahulu di pojok kanan bawah agar dapat melakukan penghapusan data KPM!");
+        return;
+      }
+      const userEmail = firebaseUser.email || '';
+      if (userEmail !== 'androsendy@gmail.com' && userEmail !== 'admin@pkh.go.id') {
+        alert(`Akun Anda (${userEmail}) tidak memiliki izin Super Admin untuk menghapus data KPM dari cloud.\n\nPenghapusan dibatalkan. Hubungi admin@pkh.go.id jika ini kesalahan.`);
+        return;
+      }
+    }
+
     if (confirm('Apakah Anda yakin ingin menghapus data KPM ini? Data verifikasi lama yang bersangkutan tidak akan terhapus, tetapi KK ini tidak bisa lagi dicari.')) {
       try {
         await DBService.deleteKPM(id);
@@ -454,6 +474,12 @@ export default function DashboardAdmin({
   const handleImportFile = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    if (isProduction && !firebaseUser) {
+      alert("Anda saat ini berada di Mode Live / Produksi tetapi belum masuk (login) menggunakan Akun Google Super Admin.\n\nSilakan login menggunakan Google terlebih dahulu di pojok kanan bawah agar data KPM berhasil sinkron ke cloud!");
+      event.target.value = '';
+      return;
+    }
 
     setImportStatus({
       isLoading: true,
@@ -813,6 +839,12 @@ export default function DashboardAdmin({
 
   const handleExecutePasteImport = async () => {
     if (parsedPreview.length === 0) return;
+
+    if (isProduction && pasteImportTarget === 'current' && !firebaseUser) {
+      alert("Anda saat ini berada di Mode Live / Produksi tetapi belum masuk (login) menggunakan Akun Google Super Admin.\n\nSilakan login terlebih dahulu, atau ubah 'Tujuan Impor' ke 'Simpan Lokal (Offline)'!");
+      return;
+    }
+
     setIsImportingPasted(true);
     try {
       const originalProductionMode = localStorage.getItem('pkh_production_mode');

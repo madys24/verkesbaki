@@ -13,7 +13,7 @@ import {
   Heart, ShieldAlert, CheckCircle, ExternalLink, Activity, Info, BarChart3, 
   Search, FileText, User, Users, Compass, HelpCircle, Sparkles, LogOut, Link
 } from 'lucide-react';
-import { googleSignIn, logout, initAuth } from './utils/firebase';
+import { googleSignIn, logout, initAuth, isFirebaseConfigured } from './utils/firebase';
 import { User as FirebaseUser } from 'firebase/auth';
 
 type AppView = 'beranda' | 'wizard' | 'riwayat' | 'admin';
@@ -24,10 +24,14 @@ export default function App() {
   
   // Realtime Production vs Demo mode switch state stored locally
   const [isProduction, setIsProduction] = useState<boolean>(() => {
-    return localStorage.getItem('pkh_production_mode') !== 'false';
+    return isFirebaseConfigured() && localStorage.getItem('pkh_production_mode') !== 'false';
   });
 
   const handleToggleProduction = (productionVal: boolean) => {
+    if (productionVal && !isFirebaseConfigured()) {
+      alert('Sistem Firebase belum dikonfigurasi atau belum terhubung.\n\nHarap jalankan Setup Firebase di panel samping kanan AI Studio terlebih dahulu untuk memulai Mode Live!');
+      return;
+    }
     setIsProduction(productionVal);
     localStorage.setItem('pkh_production_mode', productionVal ? 'true' : 'false');
     window.dispatchEvent(new Event('storage'));
@@ -412,13 +416,7 @@ export default function App() {
               <div className="flex items-center gap-2 bg-slate-50 border border-slate-150 rounded-xl px-3 py-1.5 shadow-sm">
                 <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider">Mode Sistem:</span>
                 <button
-                  onClick={() => {
-                    const newVal = !isProduction;
-                    setIsProduction(newVal);
-                    localStorage.setItem('pkh_production_mode', newVal ? 'true' : 'false');
-                    // Trigger storage event to synchronize cross-states
-                    window.dispatchEvent(new Event('storage'));
-                  }}
+                  onClick={() => handleToggleProduction(!isProduction)}
                   className={`px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 transition-all border cursor-pointer shadow-sm ${
                     isProduction 
                       ? 'bg-emerald-500 text-white border-emerald-600 font-black' 

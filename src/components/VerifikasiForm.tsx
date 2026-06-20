@@ -82,7 +82,7 @@ export default function VerifikasiForm({ onSuccess, onCancel, prepopulatedKK = '
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccessReports, setSubmitSuccessReports] = useState<VerifikasiPKH[]>([]);
 
-  // List of active KPMs from mockDB for easy testing autocomplete
+  // List of active KPMs from mockDB or cloud for autocomplete/validation
   const [allKPMs, setAllKPMs] = useState<MasterKPM[]>([]);
   useEffect(() => {
     const fetchKPMs = async () => {
@@ -91,7 +91,7 @@ export default function VerifikasiForm({ onSuccess, onCancel, prepopulatedKK = '
         setAllKPMs(list);
       } catch (err) {
         console.error("Gagal memuat KPM dari cloud:", err);
-        setAllKPMs(MockDatabase.getMasterKPM());
+        setAllKPMs(isProduction ? [] : MockDatabase.getMasterKPM());
       }
     };
     fetchKPMs();

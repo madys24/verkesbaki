@@ -37,12 +37,13 @@ export default function RiwayatKPM({ initialKK = '', onGoToWizard, isProduction 
   const [modalPhoto, setModalPhoto] = useState<{ url: string; title: string } | null>(null);
 
   const fetchDatabase = async () => {
+    let verifikasiList: VerifikasiPKH[] = [];
     try {
-      const verifikasiList = await DBService.getAllReports();
+      verifikasiList = await DBService.getAllReports();
       setAllVerifikasi(verifikasiList);
     } catch (err) {
       console.warn("Gagal mendapatkan riwayat verifikasi dari cloud:", err);
-      setAllVerifikasi(MockDatabase.getVerifikasi());
+      setAllVerifikasi(isProduction ? [] : MockDatabase.getVerifikasi());
     }
 
     try {
@@ -50,11 +51,22 @@ export default function RiwayatKPM({ initialKK = '', onGoToWizard, isProduction 
       setAllKPMs(kpmList);
     } catch (err) {
       console.warn("Gagal mendapatkan KPM list dari cloud:", err);
-      setAllKPMs(MockDatabase.getMasterKPM());
+      setAllKPMs(isProduction ? [] : MockDatabase.getMasterKPM());
     }
 
-    setAllDetails(MockDatabase.getDetailKomponen());
-    setAllDokumens(MockDatabase.getDokumen());
+    try {
+      const details = await DBService.getAllDetails(verifikasiList);
+      setAllDetails(details);
+    } catch (err) {
+      setAllDetails(isProduction ? [] : MockDatabase.getDetailKomponen());
+    }
+
+    try {
+      const docs = await DBService.getAllDokumen(verifikasiList);
+      setAllDokumens(docs);
+    } catch (err) {
+      setAllDokumens(isProduction ? [] : MockDatabase.getDokumen());
+    }
   };
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { db, getOrCreateDriveFolder, uploadImageToDrive, getAccessToken, auth } from './firebase';
+import { db, getOrCreateDriveFolder, uploadImageToDrive, getAccessToken, auth, isFirebaseConfigured } from './firebase';
 import { collection, getDocs, doc, setDoc, query, orderBy, limit, writeBatch, getDoc } from 'firebase/firestore';
 import { MasterKPM, VerifikasiPKH, DetailKomponenVerifikasi, DokumenVerifikasi } from '../types';
 import { MockDatabase } from '../data/mockDb';
@@ -60,6 +60,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 const isProductionMode = (): boolean => {
   if (typeof window === 'undefined') return false;
+  if (!isFirebaseConfigured()) return false;
   return localStorage.getItem('pkh_production_mode') !== 'false';
 };
 
@@ -83,73 +84,20 @@ export const DBService = {
     try {
       // Direct Firestore fetch - always use Firestore where possible (Solusi B)
       const kpmColRef = collection(db, getKpmColName());
-      let snapshot;
-      try {
-        snapshot = await getDocs(kpmColRef);
-      } catch (e) {
-        console.warn(`Gagal memuat ${getKpmColName()} dari Firestore:`, e);
-        // Fallback directly instead of throwing and crashing UI
-        return MockDatabase.getMasterKPM();
-      }
+      const snapshot = await getDocs(kpmColRef);
       
-      // Determine if database was previously seeded/initialized, avoiding force seed of empty master databases.
-      const seedingDocRef = doc(db, 'metadata', 'seeding_status_' + getKpmColName());
-      let seededStatus = false;
-      try {
-        const seedingDoc = await getDoc(seedingDocRef);
-        if (seedingDoc.exists()) {
-          const data = seedingDoc.data();
-          seededStatus = data && data.seeded === true;
-        }
-      } catch (e) {
-        console.warn("Could not check Firestore seeding status, fallback to localStorage:", e);
-      }
-
-      const localSeeded = localStorage.getItem('pkh_seeded_' + getKpmColName()) === 'true';
-      if (localSeeded) {
-        seededStatus = true;
-      }
-
-      if (snapshot.empty && !masterKpmSeeded && !seededStatus) {
-        console.log(`Firestore collection ${getKpmColName()} is empty. Seeding INITIAL_MASTER_KPM data...`);
-        const localKpms = MockDatabase.getMasterKPM();
-        
-        // Seed Firestore using a batch
-        const batch = writeBatch(db);
-        localKpms.forEach((kpm) => {
-          const docRef = doc(db, getKpmColName(), kpm.KPMID);
-          batch.set(docRef, kpm);
-        });
-        
-        // Set metadata seeding status in Firestore
-        batch.set(seedingDocRef, { seeded: true, seededAt: new Date().toISOString() });
-
-        try {
-          await batch.commit();
-          localStorage.setItem('pkh_seeded_' + getKpmColName(), 'true');
-        } catch (e) {
-          console.warn("Gagal commit seeding batch ke Firestore:", e);
-        }
-        masterKpmSeeded = true;
-        return localKpms;
-      }
-
-      if (snapshot.empty && seededStatus) {
-        // Explicitly cleared by user, return empty array instead of seeding demo data
-        return [];
-      }
-
       const kpms: MasterKPM[] = [];
       snapshot.forEach((doc) => {
         kpms.push(doc.data() as MasterKPM);
       });
       return kpms;
     } catch (err) {
-      console.warn("Firestore 'kpm' fetch failed. Falling back to Mock DB:", err);
+      console.warn("Gagal mengambil daftar KPM dari Firestore:", err);
+      if (err instanceof Error && err.message.startsWith('{')) {
+        throw err;
+      }
+      return [];
     }
-    
-    // Default offline fallback
-    return MockDatabase.getMasterKPM();
   },
 
   /**
@@ -374,24 +322,14 @@ export const DBService = {
         });
       }
       
-      // Merge with any offline mock data that has not been synced to keep consistency
-      const mockReports = MockDatabase.getVerifikasi();
-      const mergedSet = new Map<string, VerifikasiPKH>();
-      
-      // Add all mock records 
-      mockReports.forEach(r => mergedSet.set(r.VerifikasiID, r));
-      // Overwrite/add real cloud records
-      reports.forEach(r => mergedSet.set(r.VerifikasiID, r));
-      
-      return Array.from(mergedSet.values()).sort((a, b) => b.CreatedAt.localeCompare(a.CreatedAt));
+      return reports.sort((a, b) => b.CreatedAt.localeCompare(a.CreatedAt));
     } catch (err) {
-      console.warn("Firestore 'verifikasi' query failed, returning Mock reports:", err);
+      console.warn("Firestore 'verifikasi' query failed:", err);
       if (err instanceof Error && err.message.startsWith('{')) {
         throw err;
       }
+      return [];
     }
-
-    return MockDatabase.getVerifikasi().sort((a, b) => b.CreatedAt.localeCompare(a.CreatedAt));
   },
 
   /**
@@ -418,18 +356,13 @@ export const DBService = {
         });
       });
       await Promise.all(promises);
-      
-      const mockDetails = MockDatabase.getDetailKomponen();
-      const mergedSet = new Map<string, DetailKomponenVerifikasi>();
-      mockDetails.forEach(d => mergedSet.set(d.DetailID, d));
-      details.forEach(d => mergedSet.set(d.DetailID, d));
-      return Array.from(mergedSet.values());
+      return details;
     } catch (err) {
       console.warn("Gagal mengambil subcollection 'details' dari Firestore:", err);
       if (err instanceof Error && err.message.startsWith('{')) {
         throw err;
       }
-      return MockDatabase.getDetailKomponen();
+      return [];
     }
   },
 
@@ -457,18 +390,13 @@ export const DBService = {
         });
       });
       await Promise.all(promises);
-      
-      const mockDocs = MockDatabase.getDokumen();
-      const mergedSet = new Map<string, DokumenVerifikasi>();
-      mockDocs.forEach(d => mergedSet.set(d.DokumenID, d));
-      docs.forEach(d => mergedSet.set(d.DokumenID, d));
-      return Array.from(mergedSet.values());
+      return docs;
     } catch (err) {
       console.warn("Gagal mengambil subcollection 'dokumen' dari Firestore:", err);
       if (err instanceof Error && err.message.startsWith('{')) {
         throw err;
       }
-      return MockDatabase.getDokumen();
+      return [];
     }
   },
 
@@ -502,6 +430,7 @@ export const DBService = {
       let processedCount = 0;
       const CHUNK_SIZE = 100; // Use a slightly smaller chunk size of 100 for smoother UI progress feedback
       let failedChunksCount = 0;
+      let lastError: Error | null = null;
       
       // Get the current local mock database list
       const localList = MockDatabase.getMasterKPM();
@@ -520,6 +449,10 @@ export const DBService = {
 
       // Attempt uploading to Firestore in batches cleanly and reliably ONLY if live mode
       if (isProductionMode()) {
+        if (!auth?.currentUser) {
+          throw new Error('Anda harus login dengan Akun Google terlebih dahulu untuk mengunggah data KPM ke cloud di Mode Live.');
+        }
+
         for (let i = 0; i < kpms.length; i += CHUNK_SIZE) {
           const chunk = kpms.slice(i, i + CHUNK_SIZE);
           const batch = writeBatch(db);
@@ -534,6 +467,7 @@ export const DBService = {
           } catch (commitErr) {
             console.error(`Firestore batch commit failed for chunk starting at ${i} (saved locally):`, commitErr);
             failedChunksCount += chunk.length;
+            lastError = commitErr as Error;
           }
           
           processedCount += chunk.length;
@@ -544,6 +478,9 @@ export const DBService = {
 
         if (failedChunksCount > 0) {
           console.warn(`${failedChunksCount} records failed syncing to Firestore but saved successfully in browser LocalStorage.`);
+          if (failedChunksCount === kpms.length && lastError) {
+            throw new Error(`Gagal mengunggah data ke Cloud: ${lastError.message || 'Izin ditolak (Permission Denied). Periksa apakah Anda memiliki izin super admin.'}`);
+          }
         }
       } else {
         // Smoothly report progress for Demo Mode
@@ -555,8 +492,7 @@ export const DBService = {
       return kpms.length;
     } catch (err) {
       console.error("Gagal melakukan batch import KPM:", err);
-      // Even if overall script crashes, return total count so progress reaches 100% nicely
-      return kpms.length;
+      throw err;
     }
   },
 
