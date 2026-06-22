@@ -1,5 +1,6 @@
 import { db, getOrCreateDriveFolder, uploadImageToDrive, getAccessToken, auth, isFirebaseConfigured } from './firebase';
-import { collection, getDocs, doc, setDoc, query, orderBy, limit, writeBatch, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
+import { supabase, isSupabaseConfigured } from './supabase';
 import { MasterKPM, VerifikasiPKH, DetailKomponenVerifikasi, DokumenVerifikasi } from '../types';
 import { MockDatabase } from '../data/mockDb';
 
@@ -39,12 +40,12 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     const errInfo: FirestoreErrorInfo = {
       error: errMessage,
       authInfo: {
-        userId: auth.currentUser?.uid,
-        email: auth.currentUser?.email,
-        emailVerified: auth.currentUser?.emailVerified,
-        isAnonymous: auth.currentUser?.isAnonymous,
-        tenantId: auth.currentUser?.tenantId,
-        providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        userId: auth?.currentUser?.uid,
+        email: auth?.currentUser?.email,
+        emailVerified: auth?.currentUser?.emailVerified,
+        isAnonymous: auth?.currentUser?.isAnonymous,
+        tenantId: auth?.currentUser?.tenantId,
+        providerInfo: auth?.currentUser?.providerData?.map((provider: any) => ({
           providerId: provider.providerId,
           email: provider.email,
         })) || []
@@ -60,29 +61,45 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 const isProductionMode = (): boolean => {
   if (typeof window === 'undefined') return false;
-  if (!isFirebaseConfigured()) return false;
+  if (!isFirebaseConfigured() && !isSupabaseConfigured()) return false;
   return localStorage.getItem('pkh_production_mode') !== 'false';
 };
 
+// Map collection/table names cleanly
 const getKpmColName = (): string => isProductionMode() ? 'pkh_master_kpm_live' : 'pkh_master_kpm_demo';
 const getVerifikasiColName = (): string => isProductionMode() ? 'pkh_verifikasi_live' : 'pkh_verifikasi_demo';
-
-// Cache to avoid multi-seeding triggers in the same workspace session
-let masterKpmSeeded = false;
+const getDetailsColName = (): string => isProductionMode() ? 'pkh_details_live' : 'pkh_details_demo';
+const getDokumenColName = (): string => isProductionMode() ? 'pkh_dokumen_live' : 'pkh_dokumen_demo';
 
 export const DBService = {
   /**
    * Fetches the complete master KPM records list.
-   * If authenticated, it attempts Firestore (and seeds if empty).
-   * Otherwise, it loads from local seed database.
+   * If Supabase is configured, it loads from Supabase.
+   * Otherwise, it tries Firebase Firestore, with local seed database fallback.
    */
   async getKPMList(): Promise<MasterKPM[]> {
     if (!isProductionMode()) {
       return MockDatabase.getMasterKPM();
     }
 
+    if (isSupabaseConfigured()) {
+      try {
+        console.log(`fetching master KPM dari Supabase table: ${getKpmColName()}`);
+        const { data, error } = await supabase!
+          .from(getKpmColName())
+          .select('*');
+        if (error) {
+          throw error;
+        }
+        return (data || []) as MasterKPM[];
+      } catch (err) {
+        console.warn("Gagal mengambil daftar KPM dari Supabase:", err);
+        return [];
+      }
+    }
+
     try {
-      // Direct Firestore fetch - always use Firestore where possible (Solusi B)
+      // Direct Firestore fetch
       const kpmColRef = collection(db, getKpmColName());
       const snapshot = await getDocs(kpmColRef);
       
@@ -102,7 +119,7 @@ export const DBService = {
 
   /**
    * Submits reports containing multiple individual members checkups.
-   * Saves to Firestore subcollections if logged in, and uploads photos to Google Drive.
+   * Saves to Supabase tables or Firestore subcollections, and uploads photos to Google Drive.
    */
   async submitVerificationReport(params: {
     kpm: MasterKPM;
@@ -114,16 +131,10 @@ export const DBService = {
     const accessToken = await getAccessToken();
     const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
-    // 1. Generate months to submit
-    const { getMonthsForTriwulan } = await import('./triwulan');
-    const monthsToGenerate = params.jenisPeriode === 'Bulanan' 
-      ? [params.bulanPilihan] 
-      : getMonthsForTriwulan(params.bulanPilihan);
-
-    console.log("Membuka sesi pendaftaran laporan ke Firestore...");
+    console.log("Membuka sesi pendaftaran laporan ke DB...");
 
     try {
-      // 2. Identify or Create 'Verifikasi-PKH' folder in Google Drive only if accessToken is present
+      // Identify or Create 'Verifikasi-PKH' folder in Google Drive only if accessToken is present
       let driveFolderId = '';
       if (accessToken) {
         try {
@@ -140,7 +151,7 @@ export const DBService = {
       for (let memberIdx = 0; memberIdx < params.members.length; memberIdx++) {
         const member = params.members[memberIdx];
 
-        // 3. Upload to Google Drive if authorized, otherwise store base64 data URL directly (Solusi B)
+        // Upload to Google Drive if authorized, otherwise store base64 data URL directly
         let driveFotoKegiatanUrl = member.fotoKegiatan || '';
         let driveFotoFormUrl = member.fotoForm || '';
 
@@ -171,7 +182,7 @@ export const DBService = {
         const formatMonthNum = (months.indexOf(member.bulan) + 1).toString().padStart(2, '0');
         const verifikasiId = `VER-F-${Date.now()}-${memberIdx}`;
 
-        // Create Report Entity (PKH Verifikasi Report)
+        // Create Report Entity
         const report: VerifikasiPKH = {
           VerifikasiID: verifikasiId,
           KPMID: params.kpm.KPMID,
@@ -186,17 +197,6 @@ export const DBService = {
           CreatedAt: new Date().toISOString()
         };
 
-        // Write to Firestore /verifikasi/{verifikasiId}
-        if (isProductionMode()) {
-          try {
-            await setDoc(doc(db, getVerifikasiColName(), verifikasiId), report);
-          } catch (e) {
-            handleFirestoreError(e, OperationType.WRITE, `${getVerifikasiColName()}/${verifikasiId}`);
-            throw e;
-          }
-        }
-
-        // Write Details to Firestore /verifikasi/{verifikasiId}/details/{detailId}
         const detailId = `DTL-${verifikasiId}`;
         const detailData = {
           DetailID: detailId,
@@ -206,50 +206,96 @@ export const DBService = {
           JenisKomponen: member.jenisKomponen,
           NamaAnggota: member.namaAnggota
         };
-        if (isProductionMode()) {
-          try {
-            await setDoc(doc(db, getVerifikasiColName(), verifikasiId, 'details', detailId), detailData);
-          } catch (e) {
-            handleFirestoreError(e, OperationType.WRITE, `${getVerifikasiColName()}/${verifikasiId}/details/${detailId}`);
-            throw e;
-          }
-        }
 
-        // Write Photos/Docs to Firestore /verifikasi/{verifikasiId}/dokumen/{dokumenId}
-        if (driveFotoKegiatanUrl) {
-          const docId1 = `DOC-KEG-${verifikasiId}`;
-          if (isProductionMode()) {
+        const docId1 = `DOC-KEG-${verifikasiId}`;
+        const docId2 = `DOC-FORM-${verifikasiId}`;
+
+        if (isProductionMode()) {
+          if (isSupabaseConfigured()) {
+            // Write to Supabase relational tables
+            const { error: repErr } = await supabase!
+              .from(getVerifikasiColName())
+              .insert([report]);
+            if (repErr) throw repErr;
+
+            const { error: detErr } = await supabase!
+              .from(getDetailsColName())
+              .insert([detailData]);
+            if (detErr) throw detErr;
+
+            if (driveFotoKegiatanUrl) {
+              const { error: doc1Err } = await supabase!
+                .from(getDokumenColName())
+                .insert([{
+                  DokumenID: docId1,
+                  VerifikasiID: verifikasiId,
+                  JenisDokumen: 'Foto Kegiatan',
+                  NamaFile: member.fotoKegiatanName || 'foto_kegiatan.jpg',
+                  FileURL: driveFotoKegiatanUrl,
+                  UploadDate: new Date().toISOString()
+                }]);
+              if (doc1Err) throw doc1Err;
+            }
+
+            if (driveFotoFormUrl) {
+              const { error: doc2Err } = await supabase!
+                .from(getDokumenColName())
+                .insert([{
+                  DokumenID: docId2,
+                  VerifikasiID: verifikasiId,
+                  JenisDokumen: 'Foto Form Verifikasi',
+                  NamaFile: member.fotoFormName || 'foto_res_pemeriksaan.jpg',
+                  FileURL: driveFotoFormUrl,
+                  UploadDate: new Date().toISOString()
+                }]);
+              if (doc2Err) throw doc2Err;
+            }
+          } else {
+            // Firestore Legacy Write
             try {
-              await setDoc(doc(db, getVerifikasiColName(), verifikasiId, 'dokumen', docId1), {
-                DokumenID: docId1,
-                VerifikasiID: verifikasiId,
-                JenisDokumen: 'Foto Kegiatan',
-                NamaFile: member.fotoKegiatanName || 'foto_kegiatan.jpg',
-                FileURL: driveFotoKegiatanUrl,
-                UploadDate: new Date().toISOString()
-              });
+              await setDoc(doc(db, getVerifikasiColName(), verifikasiId), report);
             } catch (e) {
-              handleFirestoreError(e, OperationType.WRITE, `${getVerifikasiColName()}/${verifikasiId}/dokumen/${docId1}`);
+              handleFirestoreError(e, OperationType.WRITE, `${getVerifikasiColName()}/${verifikasiId}`);
               throw e;
             }
-          }
-        }
 
-        if (driveFotoFormUrl) {
-          const docId2 = `DOC-FORM-${verifikasiId}`;
-          if (isProductionMode()) {
             try {
-              await setDoc(doc(db, getVerifikasiColName(), verifikasiId, 'dokumen', docId2), {
-                DokumenID: docId2,
-                VerifikasiID: verifikasiId,
-                JenisDokumen: 'Foto Form Verifikasi',
-                NamaFile: member.fotoFormName || 'foto_res_pemeriksaan.jpg',
-                FileURL: driveFotoFormUrl,
-                UploadDate: new Date().toISOString()
-              });
+              await setDoc(doc(db, getVerifikasiColName(), verifikasiId, 'details', detailId), detailData);
             } catch (e) {
-              handleFirestoreError(e, OperationType.WRITE, `verifikasi/${verifikasiId}/dokumen/${docId2}`);
+              handleFirestoreError(e, OperationType.WRITE, `${getVerifikasiColName()}/${verifikasiId}/details/${detailId}`);
               throw e;
+            }
+
+            if (driveFotoKegiatanUrl) {
+              try {
+                await setDoc(doc(db, getVerifikasiColName(), verifikasiId, 'dokumen', docId1), {
+                  DokumenID: docId1,
+                  VerifikasiID: verifikasiId,
+                  JenisDokumen: 'Foto Kegiatan',
+                  NamaFile: member.fotoKegiatanName || 'foto_kegiatan.jpg',
+                  FileURL: driveFotoKegiatanUrl,
+                  UploadDate: new Date().toISOString()
+                });
+              } catch (e) {
+                handleFirestoreError(e, OperationType.WRITE, `${getVerifikasiColName()}/${verifikasiId}/dokumen/${docId1}`);
+                throw e;
+              }
+            }
+
+            if (driveFotoFormUrl) {
+              try {
+                await setDoc(doc(db, getVerifikasiColName(), verifikasiId, 'dokumen', docId2), {
+                  DokumenID: docId2,
+                  VerifikasiID: verifikasiId,
+                  JenisDokumen: 'Foto Form Verifikasi',
+                  NamaFile: member.fotoFormName || 'foto_res_pemeriksaan.jpg',
+                  FileURL: driveFotoFormUrl,
+                  UploadDate: new Date().toISOString()
+                });
+              } catch (e) {
+                handleFirestoreError(e, OperationType.WRITE, `verifikasi/${verifikasiId}/dokumen/${docId2}`);
+                throw e;
+              }
             }
           }
         }
@@ -268,7 +314,7 @@ export const DBService = {
           },
           dokumen: [
             ...(driveFotoKegiatanUrl ? [{
-              DokumenID: `DOC-KEG-${verifikasiId}`,
+              DokumenID: docId1,
               VerifikasiID: verifikasiId,
               JenisDokumen: 'Foto Kegiatan' as const,
               NamaFile: member.fotoKegiatanName || 'foto_kegiatan.jpg',
@@ -276,7 +322,7 @@ export const DBService = {
               UploadDate: new Date().toISOString()
             }] : []),
             ...(driveFotoFormUrl ? [{
-              DokumenID: `DOC-FORM-${verifikasiId}`,
+              DokumenID: docId2,
               VerifikasiID: verifikasiId,
               JenisDokumen: 'Foto Form Verifikasi' as const,
               NamaFile: member.fotoFormName || 'foto_res_pemeriksaan.jpg',
@@ -289,38 +335,41 @@ export const DBService = {
 
       return createdReports;
     } catch (err) {
-      console.error("Gagal menyimpan ke Firestore:", err);
-      // Fallback
+      console.error("Gagal menyimpan ke database cloud:", err);
       console.log("Menggunakan fallback penyimpanan lokal...");
       return MockDatabase.submitIndividualVerifications(params);
     }
   },
 
   /**
-   * Fetches all verification submissions (and their details)
-   * Merges mock submissions with Firestore verification collection
+   * Fetches all verification submissions
    */
   async getAllReports(): Promise<VerifikasiPKH[]> {
     if (!isProductionMode()) {
       return MockDatabase.getVerifikasi().sort((a, b) => b.CreatedAt.localeCompare(a.CreatedAt));
     }
 
+    if (isSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase!
+          .from(getVerifikasiColName())
+          .select('*');
+        if (error) throw error;
+        return (data as VerifikasiPKH[] || []).sort((a, b) => b.CreatedAt.localeCompare(a.CreatedAt));
+      } catch (err) {
+        console.warn("Supabase verifikasi fetch failed:", err);
+        return [];
+      }
+    }
+
     try {
       const verifikasiColRef = collection(db, getVerifikasiColName());
-      let snapshot;
-      try {
-        snapshot = await getDocs(verifikasiColRef);
-      } catch (e) {
-        handleFirestoreError(e, OperationType.GET, getVerifikasiColName());
-        throw e;
-      }
+      const snapshot = await getDocs(verifikasiColRef);
       
       const reports: VerifikasiPKH[] = [];
-      if (!snapshot.empty) {
-        snapshot.forEach((doc) => {
-          reports.push(doc.data() as VerifikasiPKH);
-        });
-      }
+      snapshot.forEach((doc) => {
+        reports.push(doc.data() as VerifikasiPKH);
+      });
       
       return reports.sort((a, b) => b.CreatedAt.localeCompare(a.CreatedAt));
     } catch (err) {
@@ -333,24 +382,31 @@ export const DBService = {
   },
 
   /**
-   * Fetches all subcollection details for a list of verification reports.
+   * Fetches all details for a list of verification reports.
    */
   async getAllDetails(reports: VerifikasiPKH[]): Promise<DetailKomponenVerifikasi[]> {
     if (!isProductionMode()) {
       return MockDatabase.getDetailKomponen();
     }
 
+    if (isSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase!
+          .from(getDetailsColName())
+          .select('*');
+        if (error) throw error;
+        return (data || []) as DetailKomponenVerifikasi[];
+      } catch (err) {
+        console.warn("Supabase details query failed:", err);
+        return [];
+      }
+    }
+
     try {
       const details: DetailKomponenVerifikasi[] = [];
       const promises = reports.map(async (r) => {
         const detailsColRef = collection(db, getVerifikasiColName(), r.VerifikasiID, 'details');
-        let snap;
-        try {
-          snap = await getDocs(detailsColRef);
-        } catch (e) {
-          handleFirestoreError(e, OperationType.GET, `${getVerifikasiColName()}/${r.VerifikasiID}/details`);
-          throw e;
-        }
+        const snap = await getDocs(detailsColRef);
         snap.forEach((doc) => {
           details.push(doc.data() as DetailKomponenVerifikasi);
         });
@@ -367,24 +423,31 @@ export const DBService = {
   },
 
   /**
-   * Fetches all subcollection documents for a list of verification reports.
+   * Fetches all documents for a list of verification reports.
    */
   async getAllDokumen(reports: VerifikasiPKH[]): Promise<DokumenVerifikasi[]> {
     if (!isProductionMode()) {
       return MockDatabase.getDokumen();
     }
 
+    if (isSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase!
+          .from(getDokumenColName())
+          .select('*');
+        if (error) throw error;
+        return (data || []) as DokumenVerifikasi[];
+      } catch (err) {
+        console.warn("Supabase dokumen query failed:", err);
+        return [];
+      }
+    }
+
     try {
       const docs: DokumenVerifikasi[] = [];
       const promises = reports.map(async (r) => {
         const docColRef = collection(db, getVerifikasiColName(), r.VerifikasiID, 'dokumen');
-        let snap;
-        try {
-          snap = await getDocs(docColRef);
-        } catch (e) {
-          handleFirestoreError(e, OperationType.GET, `${getVerifikasiColName()}/${r.VerifikasiID}/dokumen`);
-          throw e;
-        }
+        const snap = await getDocs(docColRef);
         snap.forEach((doc) => {
           docs.push(doc.data() as DokumenVerifikasi);
         });
@@ -401,41 +464,38 @@ export const DBService = {
   },
 
   /**
-   * Adds a new MasterKPM record to Firestore (and mirrors to Mockdb)
+   * Adds a new MasterKPM record
    */
   async addMasterKPM(kpm: MasterKPM): Promise<void> {
     if (isProductionMode()) {
-      try {
-        await setDoc(doc(db, getKpmColName(), kpm.KPMID), kpm);
-      } catch (err) {
-        console.error("Gagal menambahkan KPM ke Firestore:", err);
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase!
+          .from(getKpmColName())
+          .upsert([kpm]);
+        if (error) throw error;
+      } else {
         try {
+          await setDoc(doc(db, getKpmColName(), kpm.KPMID), kpm);
+        } catch (err) {
+          console.error("Gagal menambahkan KPM ke Firestore:", err);
           handleFirestoreError(err, OperationType.CREATE, `${getKpmColName()}/${kpm.KPMID}`);
-        } catch (authErr) {
-          throw authErr;
+          throw err;
         }
-        throw err;
       }
     }
     MockDatabase.addMasterKPM(kpm);
   },
 
   /**
-   * Adds multiple MasterKPM records using Firestore writeBatch (chunks of 500)
-   * Highly optimized to perform bulk insert very fast in few network roundtrips.
-   * Supports an optional progress callback for reporting import progress.
+   * Adds multiple MasterKPM records using fast bulk upserts
    */
   async batchAddMasterKPM(kpms: MasterKPM[], onProgress?: (current: number, total: number) => void): Promise<number> {
     try {
       let processedCount = 0;
-      const CHUNK_SIZE = 100; // Use a slightly smaller chunk size of 100 for smoother UI progress feedback
-      let failedChunksCount = 0;
-      let lastError: Error | null = null;
+      const CHUNK_SIZE = 100;
       
-      // Get the current local mock database list
+      // Save locally first to guarantee local data integrity
       const localList = MockDatabase.getMasterKPM();
-      
-      // Merge newly added items with local database immediately to guarantee instant local persistence
       const updatedLocalList = [...localList];
       kpms.forEach(newKpm => {
         const idx = updatedLocalList.findIndex(x => x.KPMID === newKpm.KPMID);
@@ -447,43 +507,42 @@ export const DBService = {
       });
       MockDatabase.saveMasterKPM(updatedLocalList);
 
-      // Attempt uploading to Firestore in batches cleanly and reliably ONLY if live mode
       if (isProductionMode()) {
-        if (!auth?.currentUser) {
-          throw new Error('Anda harus login dengan Akun Google terlebih dahulu untuk mengunggah data KPM ke cloud di Mode Live.');
-        }
+        if (isSupabaseConfigured()) {
+          // Fast Supabase Batch Upload
+          for (let i = 0; i < kpms.length; i += CHUNK_SIZE) {
+            const chunk = kpms.slice(i, i + CHUNK_SIZE);
+            const { error } = await supabase!
+              .from(getKpmColName())
+              .upsert(chunk);
+            if (error) {
+              throw new Error(`Supabase upload failed: ${error.message}`);
+            }
+            processedCount += chunk.length;
+            if (onProgress) {
+              onProgress(processedCount, kpms.length);
+            }
+          }
+        } else {
+          // Firestore Bulk Upload
+          const { writeBatch } = await import('firebase/firestore');
+          for (let i = 0; i < kpms.length; i += CHUNK_SIZE) {
+            const chunk = kpms.slice(i, i + CHUNK_SIZE);
+            const batch = writeBatch(db);
+            
+            chunk.forEach((kpm) => {
+              const docRef = doc(db, getKpmColName(), kpm.KPMID);
+              batch.set(docRef, kpm);
+            });
 
-        for (let i = 0; i < kpms.length; i += CHUNK_SIZE) {
-          const chunk = kpms.slice(i, i + CHUNK_SIZE);
-          const batch = writeBatch(db);
-          
-          chunk.forEach((kpm) => {
-            const docRef = doc(db, getKpmColName(), kpm.KPMID);
-            batch.set(docRef, kpm);
-          });
-
-          try {
             await batch.commit();
-          } catch (commitErr) {
-            console.error(`Firestore batch commit failed for chunk starting at ${i} (saved locally):`, commitErr);
-            failedChunksCount += chunk.length;
-            lastError = commitErr as Error;
-          }
-          
-          processedCount += chunk.length;
-          if (onProgress) {
-            onProgress(processedCount, kpms.length);
-          }
-        }
-
-        if (failedChunksCount > 0) {
-          console.warn(`${failedChunksCount} records failed syncing to Firestore but saved successfully in browser LocalStorage.`);
-          if (failedChunksCount === kpms.length && lastError) {
-            throw new Error(`Gagal mengunggah data ke Cloud: ${lastError.message || 'Izin ditolak (Permission Denied). Periksa apakah Anda memiliki izin super admin.'}`);
+            processedCount += chunk.length;
+            if (onProgress) {
+              onProgress(processedCount, kpms.length);
+            }
           }
         }
       } else {
-        // Smoothly report progress for Demo Mode
         if (onProgress) {
           onProgress(kpms.length, kpms.length);
         }
@@ -497,92 +556,109 @@ export const DBService = {
   },
 
   /**
-   * Updates an existing MasterKPM record in Firestore (and mirrors to Mockdb)
+   * Updates an existing MasterKPM record
    */
   async updateMasterKPM(kpm: MasterKPM): Promise<void> {
     if (isProductionMode()) {
-      try {
-        await setDoc(doc(db, getKpmColName(), kpm.KPMID), kpm);
-      } catch (err) {
-        console.error("Gagal memperbarui KPM di Firestore:", err);
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase!
+          .from(getKpmColName())
+          .upsert([kpm]);
+        if (error) throw error;
+      } else {
         try {
+          await setDoc(doc(db, getKpmColName(), kpm.KPMID), kpm);
+        } catch (err) {
+          console.error("Gagal memperbarui KPM di Firestore:", err);
           handleFirestoreError(err, OperationType.UPDATE, `${getKpmColName()}/${kpm.KPMID}`);
-        } catch (authErr) {
-          throw authErr;
+          throw err;
         }
-        throw err;
       }
     }
     MockDatabase.updateMasterKPM(kpm);
   },
 
   /**
-   * Deletes a MasterKPM record from Firestore (and mirrors to Mockdb)
+   * Deletes a MasterKPM record
    */
   async deleteKPM(kpmId: string): Promise<void> {
     if (isProductionMode()) {
-      try {
-        const { deleteDoc } = await import('firebase/firestore');
-        await deleteDoc(doc(db, getKpmColName(), kpmId));
-      } catch (err) {
-        console.error("Gagal menghapus KPM dari Firestore:", err);
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase!
+          .from(getKpmColName())
+          .delete()
+          .eq('KPMID', kpmId);
+        if (error) throw error;
+      } else {
         try {
+          const { deleteDoc } = await import('firebase/firestore');
+          await deleteDoc(doc(db, getKpmColName(), kpmId));
+        } catch (err) {
+          console.error("Gagal menghapus KPM dari Firestore:", err);
           handleFirestoreError(err, OperationType.DELETE, `${getKpmColName()}/${kpmId}`);
-        } catch (authErr) {
-          throw authErr;
+          throw err;
         }
-        throw err;
       }
     }
     MockDatabase.deleteKPM(kpmId);
   },
 
   /**
-   * Updates verification approval/rejection status in Firestore
+   * Updates verification approval/rejection status
    */
   async updateVerificationStatus(verifikasiId: string, status: 'Tersubmit' | 'Tervalidasi' | 'Ditolak'): Promise<void> {
     if (isProductionMode()) {
-      try {
-        const { updateDoc } = await import('firebase/firestore');
-        await updateDoc(doc(db, getVerifikasiColName(), verifikasiId), { Status: status });
-      } catch (err) {
-        console.error("Gagal memperbarui status laporan di Firestore:", err);
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase!
+          .from(getVerifikasiColName())
+          .update({ Status: status })
+          .eq('VerifikasiID', verifikasiId);
+        if (error) throw error;
+      } else {
         try {
+          const { updateDoc, doc: firestoreDoc } = await import('firebase/firestore');
+          await updateDoc(firestoreDoc(db, getVerifikasiColName(), verifikasiId), { Status: status });
+        } catch (err) {
+          console.error("Gagal memperbarui status laporan di Firestore:", err);
           handleFirestoreError(err, OperationType.UPDATE, `${getVerifikasiColName()}/${verifikasiId}`);
-        } catch (authErr) {
-          throw authErr;
+          throw err;
         }
-        throw err;
       }
     }
     MockDatabase.updateStatus(verifikasiId, status);
   },
 
   /**
-   * Clears all KPM records from Firestore and marks seeding as done to prevent automatic seeding of demo data.
+   * Clears all KPM records
    */
   async clearAllKPM(): Promise<void> {
     if (isProductionMode()) {
-      try {
-        const kpmColRef = collection(db, getKpmColName());
-        const snapshot = await getDocs(kpmColRef);
-        const batch = writeBatch(db);
-        snapshot.forEach((doc) => {
-          batch.delete(doc.ref);
-        });
-        
-        // Set the seeding status to true so it doesn't seed on next fetch!
-        const seedingDocRef = doc(db, 'metadata', 'seeding_status_' + getKpmColName());
-        batch.set(seedingDocRef, { seeded: true, clearedAt: new Date().toISOString() });
-        
-        await batch.commit();
-        
-        // Also mark as seeded locally
-        localStorage.setItem('pkh_seeded_' + getKpmColName(), 'true');
-      } catch (err) {
-        console.error("Gagal membersihkan Firestore KPM:", err);
-        handleFirestoreError(err, OperationType.DELETE, getKpmColName());
-        throw err;
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase!
+          .from(getKpmColName())
+          .delete()
+          .neq('KPMID', '');
+        if (error) throw error;
+      } else {
+        try {
+          const kpmColRef = collection(db, getKpmColName());
+          const snapshot = await getDocs(kpmColRef);
+          const { writeBatch } = await import('firebase/firestore');
+          const batch = writeBatch(db);
+          snapshot.forEach((doc) => {
+            batch.delete(doc.ref);
+          });
+          
+          const seedingDocRef = doc(db, 'metadata', 'seeding_status_' + getKpmColName());
+          batch.set(seedingDocRef, { seeded: true, clearedAt: new Date().toISOString() });
+          
+          await batch.commit();
+          localStorage.setItem('pkh_seeded_' + getKpmColName(), 'true');
+        } catch (err) {
+          console.error("Gagal membersihkan Firestore KPM:", err);
+          handleFirestoreError(err, OperationType.DELETE, getKpmColName());
+          throw err;
+        }
       }
     } else {
       localStorage.setItem('pkh_seeded_' + getKpmColName(), 'true');

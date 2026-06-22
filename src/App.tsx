@@ -14,6 +14,7 @@ import {
   Search, FileText, User, Users, Compass, HelpCircle, Sparkles, LogOut, Link
 } from 'lucide-react';
 import { googleSignIn, logout, initAuth, isFirebaseConfigured } from './utils/firebase';
+import { isSupabaseConfigured } from './utils/supabase';
 import { User as FirebaseUser } from 'firebase/auth';
 
 type AppView = 'beranda' | 'wizard' | 'riwayat' | 'admin';
@@ -24,12 +25,14 @@ export default function App() {
   
   // Realtime Production vs Demo mode switch state stored locally
   const [isProduction, setIsProduction] = useState<boolean>(() => {
-    return isFirebaseConfigured() && localStorage.getItem('pkh_production_mode') !== 'false';
+    const isCloudConfigured = isFirebaseConfigured() || isSupabaseConfigured();
+    return isCloudConfigured && localStorage.getItem('pkh_production_mode') !== 'false';
   });
 
   const handleToggleProduction = (productionVal: boolean) => {
-    if (productionVal && !isFirebaseConfigured()) {
-      alert('Sistem Firebase belum dikonfigurasi atau belum terhubung.\n\nHarap jalankan Setup Firebase di panel samping kanan AI Studio terlebih dahulu untuk memulai Mode Live!');
+    const isCloudConfigured = isFirebaseConfigured() || isSupabaseConfigured();
+    if (productionVal && !isCloudConfigured) {
+      alert('Sistem Cloud (Supabase / Firebase) belum dikonfigurasi.\n\nHarap isi VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY di environment (.env atau Settings) atau jalankan Setup Firebase terlebih dahulu!');
       return;
     }
     setIsProduction(productionVal);

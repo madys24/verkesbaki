@@ -14,6 +14,7 @@ import { MockDatabase, INDONESIA_REGIONAL } from '../data/mockDb';
 import { MasterKPM, VerifikasiPKH, DetailKomponenVerifikasi, DokumenVerifikasi } from '../types';
 import { DBService } from '../utils/dbService';
 import { auth, googleSignIn } from '../utils/firebase';
+import { isSupabaseConfigured } from '../utils/supabase';
 import { onAuthStateChanged } from 'firebase/auth';
 import RiwayatKPM from './RiwayatKPM';
 
@@ -340,7 +341,7 @@ export default function DashboardAdmin({
       return;
     }
 
-    if (isProduction && !firebaseUser) {
+    if (isProduction && !isSupabaseConfigured() && !firebaseUser) {
       setKpmFormError('Anda harus login dengan Akun Google terlebih dahulu untuk melakukan operasi penambahan atau perubahan Master KPM di Mode Live / Produksi.');
       return;
     }
@@ -400,7 +401,7 @@ export default function DashboardAdmin({
   };
 
   const handleDeleteKpm = async (id: string) => {
-    if (isProduction) {
+    if (isProduction && !isSupabaseConfigured()) {
       if (!firebaseUser) {
         alert("Anda saat ini berada di Mode Live / Produksi tetapi belum masuk (login).\n\nSilakan login menggunakan Google Super Admin terlebih dahulu di pojok kanan bawah agar dapat melakukan penghapusan data KPM!");
         return;
@@ -475,7 +476,7 @@ export default function DashboardAdmin({
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (isProduction && !firebaseUser) {
+    if (isProduction && !isSupabaseConfigured() && !firebaseUser) {
       alert("Anda saat ini berada di Mode Live / Produksi tetapi belum masuk (login) menggunakan Akun Google Super Admin.\n\nSilakan login menggunakan Google terlebih dahulu di pojok kanan bawah agar data KPM berhasil sinkron ke cloud!");
       event.target.value = '';
       return;
@@ -840,7 +841,7 @@ export default function DashboardAdmin({
   const handleExecutePasteImport = async () => {
     if (parsedPreview.length === 0) return;
 
-    if (isProduction && pasteImportTarget === 'current' && !firebaseUser) {
+    if (isProduction && pasteImportTarget === 'current' && !isSupabaseConfigured() && !firebaseUser) {
       alert("Anda saat ini berada di Mode Live / Produksi tetapi belum masuk (login) menggunakan Akun Google Super Admin.\n\nSilakan login terlebih dahulu, atau ubah 'Tujuan Impor' ke 'Simpan Lokal (Offline)'!");
       return;
     }
@@ -1596,6 +1597,48 @@ export default function DashboardAdmin({
 
       <div className="p-6 md:p-8">
         
+        {/* Firebase Authentication Callout Banner for Live/Production active modes */}
+        {isProduction && !isSupabaseConfigured() && !firebaseUser && (
+          <div className="mb-6 p-4 md:p-5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+            <div className="flex gap-3">
+              <div className="bg-amber-100 p-2.5 rounded-xl text-amber-700 shrink-0">
+                <ShieldAlert className="w-5.5 h-5.5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-amber-900 text-sm">Mode Live / Produksi Aktif: Hubungkan Akun Google Admin 🛡️</h4>
+                <p className="text-amber-800 text-xs leading-relaxed max-w-4xl">
+                  Anda saat ini login sebagai Operator Admin dengan kata sandi lokal, namun <strong>Firebase Cloud Database</strong> mewajibkan autentikasi akun Google utama (<strong>androsendy@gmail.com</strong>) pemilik database untuk izin unggah/sinkronisasi berkas Master KPM agar aman.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleAdminGoogleLogin}
+              className="py-2 px-4 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow transition-all shrink-0 cursor-pointer border-none"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Masuk dengan Google (androsendy@gmail.com)</span>
+            </button>
+          </div>
+        )}
+
+        {/* Supabase Connected Banner */}
+        {isProduction && isSupabaseConfigured() && (
+          <div className="mb-6 p-4 md:p-5 bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-200 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+            <div className="flex gap-3">
+              <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-800 shrink-0">
+                <CheckCircle2 className="w-5.5 h-5.5 text-emerald-600" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-emerald-900 text-sm">Supabase Database Aktif & Terhubung! ⚡</h4>
+                <p className="text-emerald-800 text-xs leading-relaxed max-w-4xl">
+                  Sistem database backend telah dikonfigurasi menggunakan <strong>Supabase Relational Database</strong>. Anda saat ini bebas mengelola data, mengimpor berkas Excel (Salin-Tempel/CSV), dan memantau sinkronisasi cloud secara aman tanpa hambatan domain atau pemblokir Google SSO!
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 bg-emerald-600 text-white font-bold text-[10px] uppercase tracking-wider rounded-xl shadow-sm">SUPABASE LIVE</span>
+          </div>
+        )}
+
         {/* SUBTAB 1: MONITORING VERIFIKASI */}
         {activeSubTab === 'monitoring' && (
           <div className="space-y-6">
